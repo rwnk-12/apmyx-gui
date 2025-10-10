@@ -125,13 +125,13 @@ Download the required files from the link below:
 [Download AMDL WSL1 ALL IN ONE.zip](https://github.com/itouakirai/apple-music-jshook-script/releases/download/wsa/AMDL-WSL1.ALL.IN.ONE.zip)
 
 1. Extract the downloaded zip file
-2. Run the batch script named **0 1**
+2. Run the batch script named **0-1**
 3. This will install WSL on your computer
 4. **Important:** Restart your computer after installation completes to avoid errors
 
 ### Step 2: Install Ubuntu and Dependencies
 
-1. After restarting, run the script named **0 2**
+1. After restarting, run the script named **0-2**
 2. This will install Ubuntu on WSL
 3. It will also install all required dependencies for the wrapper
 
@@ -141,7 +141,7 @@ Download the required files from the link below:
 2. Find the text that says mail:pass and replace it with your Apple Music credentials
    * Example: youremail@example.com:yourpassword
 3. Save the file
-4. Run script **1** to start the wrapper
+4. Run script **1. Run Decryptor** to start the wrapper
 5. Wait until you see "response type 6" in the wrapper window
 6. Ignore all other scripts in the folder
 
