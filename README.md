@@ -42,7 +42,7 @@ You need a **media user token** for downloading AAC LC quality and lyrics.
 1. Install the [Get cookies.txt LOCALLY](https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc?pli=1) extension.
 2. Open the Apple Music website and log in to your account.
 3. Click the extension icon and then the export button to save the cookies.txt file.
-4. Open the file and find the line for "media user token".
+4. Open the file and find the line for "media-user-token".
 5. Copy the long value from that line.
 6. Paste the value into the apmyx settings field.
 
@@ -51,7 +51,7 @@ You need a **media user token** for downloading AAC LC quality and lyrics.
 1. Install the [Export Cookies](https://addons.mozilla.org/en-US/firefox/addon/export-cookies-txt/) extension.
 2. Open the Apple Music website and log in to your account.
 3. Click the extension icon and choose to export cookies for music.apple.com.
-4. Open the saved file and find the line for "media user token".
+4. Open the saved file and find the line for "media-user-token".
 5. Copy the long value from that line.
 6. Paste the value into the apmyx settings field.
 
