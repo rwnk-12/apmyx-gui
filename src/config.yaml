@@ -1,0 +1,62 @@
+aac-save-folder: AAC Downloads
+aac-type: aac-lc
+alac-max: 192000
+alac-save-folder: ALAC Downloads
+album-folder-format: '{ArtistName} - {AlbumName} [{ReleaseYear}]'
+apple-master-choice: '[M]'
+artist-folder-format: '{UrlArtistName}'
+atmos-max: 2768
+atmos-save-folder: Atmos Downloads
+authorization-token: ''
+clean-choice: '[C]'
+cover-format: jpg
+cover-size: 6000x6000
+create-curator-folder: false
+decrypt-m3u8-port: 127.0.0.1:10020
+dl-albumcover-for-playlist: true
+embed-cover: true
+embed-lrc: true
+emby-animated-artwork: false
+explicit-choice: '[E]'
+get-m3u8-from-device: true
+get-m3u8-mode: hires
+get-m3u8-port: 127.0.0.1:20020
+language: ''
+last_artwork_dir: ''
+limit-max: 200
+lrc-format: lrc
+lrc-type: lyrics
+max-memory-limit: 256
+media-user-token: ''
+mv-audio-type: atmos
+mv-max: 2160
+mv-save-folder: Music Video Downloads
+playlist-folder-format: '{PlaylistName}'
+preferred-quality: Dolby Atmos
+save-animated-artwork: false
+save-artist-cover: false
+save-lrc-file: false
+song-file-format: '{DiscNumber}-{SongNumber}. {SongName}'
+storefront: ''
+tag-options:
+  delete-sort-on-write: true
+  use-mp4box-artist: false
+  write-album: true
+  write-album-artist: true
+  write-album-artist-sort: true
+  write-album-sort: true
+  write-artist: true
+  write-artist-sort: true
+  write-composer: true
+  write-composer-sort: true
+  write-copyright: true
+  write-cover: true
+  write-date: true
+  write-disc-track: true
+  write-genre: true
+  write-isrc: true
+  write-lyrics: true
+  write-publisher: true
+  write-title: true
+  write-upc: true
+use-songinfo-for-playlist: true
