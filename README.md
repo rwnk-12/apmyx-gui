@@ -111,14 +111,13 @@ You need these tools installed on your computer for apmyx to work properly.
 
 **Important:** Restart your computer after adding all tools to PATH.
 
-## Wrapper Installation (Optional)
+## Wrapper Installation
 
 The wrapper is only needed if you want to download these high quality formats:
 * ALAC (Apple Lossless)
 * Atmos
 * AAC Binaural
 * AAC Downmix
-
 ### Step 1: Download and Install WSL
 
 Download the required files from the link below:
@@ -151,9 +150,13 @@ Download the required files from the link below:
 Once the wrapper shows "response type 6":
 1. Start the apmyx GUI application
 2. You can now download music in ALAC and Atmos quality
-
 **Note:** Keep the wrapper window open while using apmyx.
 
 ## Support
-
 For issues or questions, please open an issue on GitHub or join our Telegram group at [https://t.me/apmyx](https://t.me/apmyx)
+
+## References
+* [zhaarey/apple-music-downloader](https://github.com/zhaarey/apple-music-downloader)
+* [zhaarey/wrapper](https://github.com/zhaarey/wrapper)
+* [glomatico/gamdl](https://github.com/glomatico/gamdl)
+* [itouakirai/apple-music-jshook-script](https://github.com/itouakirai/apple-music-jshook-script)
