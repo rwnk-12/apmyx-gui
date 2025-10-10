@@ -6,6 +6,23 @@ A GUI based Apple Music downloader for Atmos, Lossless, and AAC formats.
 
 Download your playlists, songs, albums, artist discography, and Music Videos with ease.
 
+## Features
+
+### Easy Search
+<img width="1919" height="1018" alt="search" src="https://github.com/user-attachments/assets/be03233c-c5e8-4840-8db7-d01aeacf4b21" />
+
+Search for your favorite songs and artists directly in the app.
+
+### Quality Selection
+<img width="1919" height="978" alt="quality" src="https://github.com/user-attachments/assets/e0afdeb6-9bf7-4dd0-bc61-18114841594b" />
+
+Check available audio qualities directly in the GUI before downloading.
+
+### Artist Discography Download
+<img width="1917" height="955" alt="artist_page" src="https://github.com/user-attachments/assets/ee4fad29-8d22-4777-aafc-8a5b464a30ef" />
+
+Download complete artist discographies with one click.
+
 ## Download
 
 Get the latest release from the [Releases](https://github.com/rwnk-12/apmyx-gui/releases) page.
@@ -15,6 +32,30 @@ Get the latest release from the [Releases](https://github.com/rwnk-12/apmyx-gui/
 ## Requirements
 
 You need an **active Apple Music subscription** to download music.
+
+### Getting Your Media User Token
+
+You need a **media user token** for downloading AAC LC quality and lyrics.
+
+**For Chrome:**
+
+1. Install the [Get cookies.txt LOCALLY](https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc?pli=1) extension.
+2. Open the Apple Music website and log in to your account.
+3. Click the extension icon and then the export button to save the cookies.txt file.
+4. Open the file and find the line for "media user token".
+5. Copy the long value from that line.
+6. Paste the value into the apmyx settings field.
+
+**For Firefox:**
+
+1. Install the [Export Cookies](https://addons.mozilla.org/en-US/firefox/addon/export-cookies-txt/) extension.
+2. Open the Apple Music website and log in to your account.
+3. Click the extension icon and choose to export cookies for music.apple.com.
+4. Open the saved file and find the line for "media user token".
+5. Copy the long value from that line.
+6. Paste the value into the apmyx settings field.
+
+**Note:** Without this token, you can only download higher quality formats like ALAC and Atmos (when using the wrapper). AAC LC and lyrics will not be available.
 
 ## Installation
 
@@ -112,23 +153,6 @@ Once the wrapper shows "response type 6":
 2. You can now download music in ALAC and Atmos quality
 
 **Note:** Keep the wrapper window open while using apmyx.
-
-## Features
-
-### Easy Search
-<img width="1919" height="1018" alt="search" src="https://github.com/user-attachments/assets/be03233c-c5e8-4840-8db7-d01aeacf4b21" />
-
-Search for your favorite songs and artists directly in the app.
-
-### Quality Selection
-<img width="1919" height="978" alt="quality" src="https://github.com/user-attachments/assets/e0afdeb6-9bf7-4dd0-bc61-18114841594b" />
-
-Check available audio qualities directly in the GUI before downloading.
-
-### Artist Discography Download
-<img width="1917" height="955" alt="artist_page" src="https://github.com/user-attachments/assets/ee4fad29-8d22-4777-aafc-8a5b464a30ef" />
-
-Download complete artist discographies with one click.
 
 ## Support
 
