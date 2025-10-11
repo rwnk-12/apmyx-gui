@@ -23,6 +23,13 @@ Check available audio qualities directly in the GUI before downloading.
 
 Download complete artist discographies with one click.
 
+### Sync your Music Library with lyrics
+<img width="1912" height="984" alt="lyrics" src="https://github.com/user-attachments/assets/e00c230e-d2e3-46f3-8a39-743ce4f79a9e" />
+
+### Select your tracks, albums, music videos and download them only. 
+<img width="1919" height="946" alt="select" src="https://github.com/user-attachments/assets/87877732-7952-4e59-8ca4-a4121c91cf51" />
+
+
 ## Download
 
 Get the latest release from the [Releases](https://github.com/rwnk-12/apmyx-gui/releases) page.
