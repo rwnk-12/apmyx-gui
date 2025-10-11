@@ -139,7 +139,7 @@ Download the required files from the link below:
 
 1. Open script **1** in a text editor like Notepad
 2. Find the text that says "username:password" and replace it with your Apple Music credentials
-   * Example: youremail@example.com:yourpassword
+   * Example: "youremail@example.com:yourpassword"
 3. Save the file
 4. Run script **1. Run Decryptor** to start the wrapper
 5. Wait until you see "response type 6" in the wrapper window
