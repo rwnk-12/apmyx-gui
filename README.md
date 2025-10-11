@@ -153,7 +153,7 @@ Once the wrapper shows "response type 6":
 **Note:** Keep the wrapper window open while using apmyx.
 
 ## Support
-For issues or questions, please open an issue on GitHub or join our Telegram group at [https://t.me/apmyx](https://t.me/apmyx)
+For issues or questions, please open an issue on GitHub.
 
 ## References
 * [zhaarey/apple-music-downloader](https://github.com/zhaarey/apple-music-downloader)
