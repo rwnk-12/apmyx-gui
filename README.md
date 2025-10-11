@@ -134,23 +134,23 @@ Download the required files from the link below:
 [Download AMDL WSL1 ALL IN ONE.zip](https://github.com/itouakirai/apple-music-jshook-script/releases/download/wsa/AMDL-WSL1.ALL.IN.ONE.zip)
 
 1. Extract the downloaded zip file
-2. Run the batch script named **0-1**
+2. Run the batch script named **0-1 Install WSL1(need to reboot later).bat**
 3. This will install WSL on your computer
 4. **Important:** Restart your computer after installation completes to avoid errors
 
 ### Step 2: Install Ubuntu and Dependencies
 
-1. After restarting, run the script named **0-2**
+1. After restarting, run the script named **0-2 Install Ubuntu-AMDL(only once).bat**
 2. This will install Ubuntu on WSL
 3. It will also install all required dependencies for the wrapper
 
 ### Step 3: Configure and Start the Wrapper
 
-1. Open script **1** in a text editor like Notepad
-2. Find the text that says "username:password" and replace it with your Apple Music credentials
+1. Open script **1. Run decryptor (!!!need to replace username and password in this file).bat** in a text editor like Notepad
+2. Find the text that says "username:password" and replace it with your Apple Music credentials. Make sure to close your credentials in " " like in example.
    * Example: "youremail@example.com:yourpassword"
 3. Save the file
-4. Run script **1. Run Decryptor** to start the wrapper
+4. Run script **1. Run decryptor (!!!need to replace username and password in this file).bat** to start the wrapper
 5. Wait until you see "response type 6" in the wrapper window
 6. Ignore all other scripts in the folder
 
@@ -161,8 +161,75 @@ Once the wrapper shows "response type 6":
 2. You can now download music in ALAC and Atmos quality
 **Note:** Keep the wrapper window open while using apmyx.
 
+# Building from Source
+
+For developers, contributors, or users on macOS and Linux, you can run the application directly from the source code.
+
+## Prerequisites
+
+Before you begin, make sure you have the following installed on your system:
+
+- **Go**: Version 1.18 or newer. ([Download here](https://golang.org/dl/))
+- **Python**: Version 3.9 or newer. ([Download here](https://www.python.org/downloads/))
+- **Required Tools**: FFmpeg, mp4box, and mp4decrypt. Follow the installation steps for your OS in the Required Tools section above.
+
+## Step-by-Step Instructions
+
+### 1. Get the Code
+
+Clone the project repository to your computer.
+
+```bash
+git clone https://github.com/rwnk-12/apmyx-gui.git
+cd apmyx-gui
+```
+
+### 2. Build the Backend
+
+This step compiles the Go program that handles all downloading and processing.
+
+```bash
+# For macOS & Linux (make the script executable first)
+chmod +x build_go.sh
+./build_go.sh
+
+# For Windows (using Git Bash or WSL)
+./build_go.sh
+```
+
+A `downloader` (or `downloader.exe`) file will be created in the `src/core/` directory.
+
+### 3. Set Up the Python Environment
+
+This creates an isolated environment and installs the Python libraries needed for the GUI.
+
+```bash
+# Create a virtual environment
+python -m venv venv
+
+# Activate the environment
+# On macOS & Linux:
+source venv/bin/activate
+
+# On Windows:
+.\venv\Scripts\activate
+
+# Install the required libraries
+pip install -r requirements.txt
+```
+
+### 4. Run the Application
+
+Once the backend is built and the Python environment is set up, you can start the app.
+
+```bash
+python main.py
+```
+
+The application window should now appear.
+
 ## Support
-For issues or questions, please open an issue on GitHub.
+For issues or questions, please open an issue on GitHub. [Telegram](https://t.me/apmyx)
 
 ## References
 * [zhaarey/apple-music-downloader](https://github.com/zhaarey/apple-music-downloader)
