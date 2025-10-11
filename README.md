@@ -111,7 +111,7 @@ You need these tools installed on your computer for apmyx to work properly.
 
 **Important:** Restart your computer after adding all tools to PATH.
 
-## Wrapper Installation
+## Wrapper Installation (Windows)
 
 The wrapper is only needed if you want to download these high quality formats:
 * ALAC (Apple Lossless)
