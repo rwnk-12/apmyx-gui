@@ -182,6 +182,7 @@ Clone the project repository to your computer.
 ```bash
 git clone https://github.com/rwnk-12/apmyx-gui.git
 cd apmyx-gui
+cd scripts
 ```
 
 ### 2. Build the Backend
