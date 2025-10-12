@@ -60,8 +60,10 @@ You need a **media user token** for downloading AAC LC quality and lyrics.
 3. Click the extension icon and choose to export cookies for music.apple.com.
 4. Open the saved file and find the line for "media-user-token".
 5. Copy the long value from that line.
-6. Paste the value into the apmyx settings field. 
-**Note**: Don’t include leading or trailing spaces when pasting the token — paste it exactly (for example at end "==", not "== " ). Extra spaces will cause errors. You can also enter the token manually in config.yaml.
+6. Paste the value into the apmyx settings field.
+
+**Note**: Don’t include leading or trailing spaces when pasting the token, paste it exactly (for example at end "==", not "== " ). Extra spaces will cause errors. You can also enter the token manually in config.yaml.
+
 **Note:** Without this token, you can only download higher quality formats like ALAC and Atmos (when using the wrapper). AAC LC and lyrics will not be available.
 
 ## Installation
