@@ -232,7 +232,8 @@ python main.py
 The application window should now appear.
 
 ## Support
-For issues or questions, please open an issue on GitHub. 
+For issues or questions, please open an issue on GitHub or Contact 
+on [Telegram](https://t.me/apmyx)
 
 ## References
 * [zhaarey/apple-music-downloader](https://github.com/zhaarey/apple-music-downloader)
