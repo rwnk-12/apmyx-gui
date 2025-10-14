@@ -151,7 +151,13 @@ Download the required files from the link below:
 
 ### Step 4: Start the script
 
-Install the dependencies by running `pip install -r requirements.txt` in the project root directory, then launch `main.py` from the `src` folder.
+`git clone https://github.com/rwnk-12/apmyx-gui.git
+cd apmyx-gui
+pip install -r requirements.txt
+cd src
+python main.py`
+
+
 
 
 # Building from Source
