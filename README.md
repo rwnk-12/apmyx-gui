@@ -151,7 +151,8 @@ Download the required files from the link below:
 
 ### Step 4: Start the script
 
-Install requirements using pip install -r requirements.txt at root and start the main.py from src folder.
+Install the dependencies by running `pip install -r requirements.txt` in the project root directory, then launch `main.py` from the `src` folder.
+
 
 # Building from Source
 
