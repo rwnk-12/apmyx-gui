@@ -4,7 +4,7 @@ A GUI based Apple Music downloader for Atmos, Lossless, and AAC formats for wind
 
 ## About
 
-Download your playlists, songs, albums, artist discography, and Music Videos with ease.
+Download your playlists, songs, albums, artist discography, and Music Videos with ease. Download the app for Windows from [here](https://github.com/rwnk-12/apmyx-gui/releases/tag/v0.1.0)
 
 ## Features
 
