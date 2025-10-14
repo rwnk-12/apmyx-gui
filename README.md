@@ -151,15 +151,13 @@ Download the required files from the link below:
 
 ### Step 4: Start the script
 
-`git clone https://github.com/rwnk-12/apmyx-gui.git
+```bash
+git clone https://github.com/rwnk-12/apmyx-gui.git
 cd apmyx-gui
 pip install -r requirements.txt
 cd src
-python main.py`
-
-
-
-
+python main.py
+```
 # Building from Source
 
 For developers, contributors, or users on macOS and Linux, you can run the application directly from the source code.
