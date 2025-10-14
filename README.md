@@ -151,6 +151,11 @@ Download the required files from the link below:
 
 ### Step 4: Start the script
 
+Download the app for windows from releases and extract it and open apmyx.exe 
+
+OR
+
+From the source code:
 ```bash
 git clone https://github.com/rwnk-12/apmyx-gui.git
 cd apmyx-gui
