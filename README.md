@@ -29,13 +29,6 @@ Download complete artist discographies with one click.
 ### Select your tracks, albums, music videos and download them only. 
 <img width="1919" height="946" alt="select" src="https://github.com/user-attachments/assets/87877732-7952-4e59-8ca4-a4121c91cf51" />
 
-
-## Download
-
-Get the latest release from the [Releases](https://github.com/rwnk-12/apmyx-gui/releases) page.
-
-**Note:** Extract the downloaded file using 7-Zip or WinRAR for best compatibility.
-
 ## Requirements
 
 You need an **active Apple Music subscription** to download music.
@@ -156,12 +149,9 @@ Download the required files from the link below:
 5. Wait until you see "response type 6" in the wrapper window
 6. Ignore all other scripts in the folder
 
-### Step 4: Use apmyx GUI
+### Step 4: Start the script
 
-Once the wrapper shows "response type 6":
-1. Start the apmyx GUI application
-2. You can now download music in ALAC and Atmos quality
-**Note:** Keep the wrapper window open while using apmyx.
+Install requirements using pip install -r requirements.txt at root and start the main.py from src folder.
 
 # Building from Source
 
