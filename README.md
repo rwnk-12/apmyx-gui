@@ -4,7 +4,9 @@ A GUI based Apple Music downloader for Atmos, Lossless, and AAC formats for wind
 
 ## About
 
-Download your playlists, songs, albums, artist discography, and Music Videos with ease. Download the app for Windows from [here](https://github.com/rwnk-12/apmyx-gui/releases/tag/v0.1.0)
+Easily download your playlists, songs, albums, artist discographies, and music videos. Get the Windows app from [releases](https://github.com/rwnk-12/apmyx-gui/releases/tag/v0.1.0)
+Some browsers may block the download, flagging the zip file as harmful, which is a false positive. You can also download it from [Telegram](https://t.me/apmyx/2).
+The file contains no malicious scripts; the warning appears because it is not signed. You can safely ignore the warning and select "Run Anyway" when opening the .exe.
 
 ## Features
 
