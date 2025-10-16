@@ -148,7 +148,7 @@ Download the required files from the link below:
    * Example: "youremail@example.com:yourpassword"
 3. Save the file
 4. Run script **1. Run decryptor (!!!need to replace username and password in this file).bat** to start the wrapper
-5. Wait until you see "response type 6" in the wrapper window
+5. Wait until you see "response type 6 and listening status" in the wrapper window
 6. Ignore all other scripts in the folder
 
 ### Step 4: Start the script
