@@ -72,50 +72,9 @@ You need a **media user token** for downloading AAC LC quality and lyrics.
 
 ### Required Tools
 
-You need these tools installed on your computer for apmyx to work properly.
-
-#### Installing mp4box (Required for muxing of MV and tagging)
-
-1. Visit [GPAC Downloads](https://gpac.io/downloads/gpac-nightly-builds/)
-2. Download the Windows installer
-3. Install GPAC to the default location (usually **C:\Program Files\GPAC**)
-4. Search for **Edit the system environment variables**
-5. Click **Environment Variables**
-6. Under **System variables**, select **Path** and click **Edit**
-7. Click **New** and add **C:\Program Files\GPAC**
-8. Click **OK** on all windows
-
-#### Installing mp4decrypt (Required for Music Video downloads)
-
-1. Visit [Bento4 Downloads](https://www.bento4.com/downloads/)
-2. Click **Binaries for Windows 10**
-3. Download and extract the zip file
-4. Create a folder **C:\bento4**
-5. Copy the contents to **C:\bento4**
-6. Search for **Edit the system environment variables**
-7. Click **Environment Variables**
-8. Under **System variables**, select **Path** and click **Edit**
-9. Click **New** and add **C:\bento4\bin**
-10. Click **OK** on all windows
-
-#### Installing FFmpeg (Required for animated artwork)
-
-1. Visit the [FFmpeg download page](https://www.ffmpeg.org/download.html)
-2. Click on the Windows logo
-3. Click **Windows builds from gyan.dev**
-4. Download **ffmpeg git full.7z** (latest version)
-5. Extract the downloaded file using 7-Zip
-6. Rename the extracted folder to **ffmpeg**
-7. Move the folder to **C:\ffmpeg**
-8. Search for **Edit the system environment variables** in Windows search
-9. Click **Environment Variables**
-10. Under **System variables**, select **Path** and click **Edit**
-11. Click **New** and add **C:\ffmpeg\bin**
-12. Click **OK** on all windows
-
-
-
-**Important:** Restart your computer after adding all tools to PATH.
+```
+scoop install ffmpeg gpac bento4
+```
 
 ## Wrapper Installation (Windows)
 
