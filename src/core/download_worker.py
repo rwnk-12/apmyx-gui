@@ -24,7 +24,7 @@ class DownloadJobRunner(QRunnable):
         self.total_tracks_updated = False
         self._pause_triggered = False
         
-        # Store original URL for detection
+       
         self.original_url = original_url
 
         q = (quality_preference or "").strip().lower()
@@ -34,7 +34,7 @@ class DownloadJobRunner(QRunnable):
         self.is_single_song = "--song" in command
         self.is_playlist = is_playlist
         
-        # Proper user playlist detection
+ 
         self.is_user_playlist = "pl.u-" in original_url
         
       
@@ -562,20 +562,21 @@ class DownloadWorker(QObject):
             
             latest_config = self._get_latest_config()
             
+   
             allowed_flags = {
                 'aac-save-folder', 'alac-save-folder', 'atmos-save-folder', 'mv-save-folder',
                 'album-folder-format', 'artist-folder-format', 'playlist-folder-format',
                 'song-file-format', 'cover-format', 'cover-size', 'aac-type', 'alac-max',
-                'atmos-max', 'mv-audio-type', 'decrypt-m3u8-port', 'get-m3u8-port',
+                'atmos-max', 'mv-audio-type', 'mv-max', 'decrypt-m3u8-port', 'get-m3u8-port',
                 'get-m3u8-mode', 'get-m3u8-from-device', 'apple-master-choice',
                 'explicit-choice', 'clean-choice', 'embed-cover', 'embed-lrc',
-                'save-lrc-file', 'save-artist-cover', 'save-animated-artwork',
-                'emby-animated-artwork', 'use-songinfo-for-playlist', 'json-output',
-                'language', 'limit-max', 'max-memory-limit', 'storefront', 'music-video',
-                'song', 'resolve-artist', 'authorization-token', 'media-user-token',
-                'create-curator-folder'
+                'save-lrc-file', 'lrc-type', 'lrc-format', 'save-artist-cover', 'save-animated-artwork',
+                'emby-animated-artwork', 'use-songinfo-for-playlist', 'dl-albumcover-for-playlist',
+                'json-output', 'language', 'limit-max', 'max-memory-limit', 'storefront',
+                'music-video', 'song', 'resolve-artist', 'authorization-token', 'media-user-token',
+                'create-curator-folder', 'atmos', 'aac', 'select', 'all-album', 'debug'
             }
-
+  
             for key, value in latest_config.items():
                 if key == 'tag-options': 
                     continue
@@ -593,6 +594,8 @@ class DownloadWorker(QObject):
             elif is_song_url: 
                 command.append("--song")
             command.append(url_to_download)
+
+            logging.info(f"Executing Go backend with command: {' '.join(command)}")
 
             # Pass original_url to the runner for proper detection
             runner = DownloadJobRunner(

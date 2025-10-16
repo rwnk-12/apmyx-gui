@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	// "strings" // REMOVED: Unused import
 	"time"
 
 	"github.com/Eyevinn/mp4ff/mp4"
@@ -88,13 +87,13 @@ func Run(adamId string, playlistUrl string, outfile string, Config structs.Confi
 
 	var body io.Reader
 	client := &http.Client{Timeout: timeout}
-	
+
 	do, err = client.Do(req)
 	if err != nil {
 		return err
 	}
 	defer do.Body.Close()
-	
+
 	if do.ContentLength > 0 && do.ContentLength < int64(Config.MaxMemoryLimit*1024*1024) {
 		var buffer bytes.Buffer
 		bar := progressbar.NewOptions64(
@@ -102,6 +101,14 @@ func Run(adamId string, playlistUrl string, outfile string, Config structs.Confi
 			progressbar.OptionSetDescription("Downloading..."),
 			progressbar.OptionShowBytes(true),
 			progressbar.OptionClearOnFinish(),
+			progressbar.OptionEnableColorCodes(true),
+			progressbar.OptionSetTheme(progressbar.Theme{
+				Saucer:        "",
+				SaucerHead:    "",
+				SaucerPadding: "",
+				BarStart:      "",
+				BarEnd:        "",
+			}),
 		)
 		io.Copy(io.MultiWriter(&buffer, bar), do.Body)
 		body = &buffer
@@ -139,35 +146,60 @@ func downloadAndDecryptFile(conn io.ReadWriter, in io.Reader, outfile string,
 		outBuf = bufio.NewWriter(&buffer)
 	} else {
 		ofh, err := os.Create(outfile)
-		if err != nil { return err }
+		if err != nil {
+			return err
+		}
 		defer ofh.Close()
 		outBuf = bufio.NewWriter(ofh)
 	}
 	init, offset, err := ReadInitSegment(inBuf)
-	if err != nil { return err }
-	if init == nil { return errors.New("no init segment found") }
+	if err != nil {
+		return err
+	}
+	if init == nil {
+		return errors.New("no init segment found")
+	}
 
 	tracks, err := TransformInit(init)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	sanitizeInit(init)
-	init.Encode(outBuf)
+	err = init.Encode(outBuf)
+	if err != nil {
+		return err
+	}
 
 	bar := progressbar.NewOptions64(totalLen,
 		progressbar.OptionSetDescription("Decrypting..."),
 		progressbar.OptionShowBytes(true),
 		progressbar.OptionClearOnFinish(),
+		progressbar.OptionEnableColorCodes(true),
+		progressbar.OptionSetTheme(progressbar.Theme{
+			Saucer:        "",
+			SaucerHead:    "",
+			SaucerPadding: "",
+			BarStart:      "",
+			BarEnd:        "",
+		}),
 	)
 	bar.Add64(int64(offset))
 	rw := bufio.NewReadWriter(bufio.NewReader(conn), bufio.NewWriter(conn))
 	for i := 0; ; i++ {
 		frag, newOffset, err := ReadNextFragment(inBuf, offset)
-		if err == io.EOF { break }
-		if err != nil { return err }
-		
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+
 		rawoffset := newOffset - offset
 		offset = newOffset
-		
-		if i >= len(playlistSegments) { return errors.New("mp4 fragment count exceeds playlist segment count") }
+
+		if i >= len(playlistSegments) {
+			return errors.New("mp4 fragment count exceeds playlist segment count")
+		}
 		segment := playlistSegments[i]
 		if segment.Key != nil {
 			if i != 0 {
@@ -179,40 +211,54 @@ func downloadAndDecryptFile(conn io.ReadWriter, in io.Reader, outfile string,
 				SendString(rw, adamId)
 			}
 			SendString(rw, segment.Key.URI)
-			
-			// FIX: Correctly flush the bufio.ReadWriter
-			if err := rw.Flush(); err != nil {
-				return err
-			}
 		}
-		
+
 		err = DecryptFragment(frag, tracks, rw)
-		if err != nil { return fmt.Errorf("decryptFragment: %w", err) }
-		
+		if err != nil {
+			return fmt.Errorf("decryptFragment: %w", err)
+		}
+
 		err = frag.Encode(outBuf)
-		if err != nil { return err }
-		
+		if err != nil {
+			return err
+		}
+
 		bar.Add64(int64(rawoffset))
 	}
-	outBuf.Flush()
+	err = outBuf.Flush()
+	if err != nil {
+		return err
+	}
 	if totalLen > 0 && totalLen <= MaxMemorySize {
 		ofh, err := os.Create(outfile)
-		if err != nil { return err }
+		if err != nil {
+			return err
+		}
 		defer ofh.Close()
 		_, err = ofh.Write(buffer.Bytes())
-		if err != nil { return err }
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
 func sanitizeInit(init *mp4.InitSegment) error {
 	traks := init.Moov.Traks
-	if len(traks) > 1 { return errors.New("more than 1 track found") }
+	if len(traks) > 1 {
+		return errors.New("more than 1 track found")
+	}
 	stsd := traks[0].Mdia.Minf.Stbl.Stsd
-	if stsd.SampleCount <= 1 { return nil }
-	if stsd.SampleCount > 2 { return fmt.Errorf("expected 1 or 2 entries in stsd, got %d", stsd.SampleCount) }
+	if stsd.SampleCount <= 1 {
+		return nil
+	}
+	if stsd.SampleCount > 2 {
+		return fmt.Errorf("expected 1 or 2 entries in stsd, got %d", stsd.SampleCount)
+	}
 	children := stsd.Children
-	if children[0].Type() != children[1].Type() { return errors.New("children in stsd are not of the same type") }
+	if children[0].Type() != children[1].Type() {
+		return errors.New("children in stsd are not of the same type")
+	}
 	stsd.Children = children[:1]
 	stsd.SampleCount = 1
 	return nil
@@ -237,10 +283,16 @@ func filterResponse(f io.Reader) (*bytes.Buffer, error) {
 func parseMediaPlaylist(r io.ReadCloser) ([]*m3u8.MediaSegment, error) {
 	defer r.Close()
 	playlistBuf, err := filterResponse(r)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	playlist, listType, err := m3u8.Decode(*playlistBuf, true)
-	if err != nil { return nil, err }
-	if listType != m3u8.MEDIA { return nil, errors.New("m3u8 not of media type") }
+	if err != nil {
+		return nil, err
+	}
+	if listType != m3u8.MEDIA {
+		return nil, errors.New("m3u8 not of media type")
+	}
 	mediaPlaylist := playlist.(*m3u8.MediaPlaylist)
 	return mediaPlaylist.Segments, nil
 }
@@ -250,9 +302,13 @@ func ReadInitSegment(r io.Reader) (*mp4.InitSegment, uint64, error) {
 	init := mp4.NewMP4Init()
 	for i := 0; i < 2; i++ {
 		box, err := mp4.DecodeBox(offset, r)
-		if err != nil { return nil, offset, err }
+		if err != nil {
+			return nil, offset, err
+		}
 		boxType := box.Type()
-		if boxType != "ftyp" && boxType != "moov" { return nil, offset, fmt.Errorf("unexpected box type %s", boxType) }
+		if boxType != "ftyp" && boxType != "moov" {
+			return nil, offset, fmt.Errorf("unexpected box type %s", boxType)
+		}
 		init.AddChild(box)
 		offset += box.Size()
 	}
@@ -263,8 +319,12 @@ func ReadNextFragment(r io.Reader, offset uint64) (*mp4.Fragment, uint64, error)
 	frag := mp4.NewFragment()
 	for {
 		box, err := mp4.DecodeBox(offset, r)
-		if err == io.EOF { return nil, offset, io.EOF }
-		if err != nil { return nil, offset, err }
+		if err == io.EOF {
+			return nil, offset, io.EOF
+		}
+		if err != nil {
+			return nil, offset, err
+		}
 		boxType := box.Type()
 		offset += box.Size()
 		if boxType == "moof" || boxType == "emsg" || boxType == "prft" {
@@ -276,7 +336,9 @@ func ReadNextFragment(r io.Reader, offset uint64) (*mp4.Fragment, uint64, error)
 			break
 		}
 	}
-	if frag.Moof == nil { return nil, offset, errors.New("mdat box found without preceding moof box") }
+	if frag.Moof == nil {
+		return nil, offset, errors.New("mdat box found without preceding moof box")
+	}
 	return frag, offset, nil
 }
 
@@ -286,9 +348,15 @@ func FilterSbgpSgpd(children []mp4.Box) ([]mp4.Box, uint64) {
 	for _, child := range children {
 		switch box := child.(type) {
 		case *mp4.SbgpBox:
-			if box.GroupingType == "seam" || box.GroupingType == "seig" { bytesRemoved += child.Size(); continue }
+			if box.GroupingType == "seam" || box.GroupingType == "seig" {
+				bytesRemoved += child.Size()
+				continue
+			}
 		case *mp4.SgpdBox:
-			if box.GroupingType == "seam" || box.GroupingType == "seig" { bytesRemoved += child.Size(); continue }
+			if box.GroupingType == "seam" || box.GroupingType == "seig" {
+				bytesRemoved += child.Size()
+				continue
+			}
 		}
 		remainingChildren = append(remainingChildren, child)
 	}
@@ -297,9 +365,13 @@ func FilterSbgpSgpd(children []mp4.Box) ([]mp4.Box, uint64) {
 
 func TransformInit(init *mp4.InitSegment) (map[uint32]mp4.DecryptTrackInfo, error) {
 	di, err := mp4.DecryptInit(init)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	tracks := make(map[uint32]mp4.DecryptTrackInfo, len(di.TrackInfos))
-	for _, ti := range di.TrackInfos { tracks[ti.TrackID] = ti }
+	for _, ti := range di.TrackInfos {
+		tracks[ti.TrackID] = ti
+	}
 	for _, trak := range init.Moov.Traks {
 		stbl := trak.Mdia.Minf.Stbl
 		stbl.Children, _ = FilterSbgpSgpd(stbl.Children)
@@ -319,49 +391,77 @@ func SwitchKeys(conn io.Writer) error {
 }
 
 func SendString(conn io.Writer, uri string) error {
-	if _, err := conn.Write([]byte{byte(len(uri))}); err != nil { return err }
+	if _, err := conn.Write([]byte{byte(len(uri))}); err != nil {
+		return err
+	}
 	_, err := io.WriteString(conn, uri)
 	return err
 }
 
 func cbcsFullSubsampleDecrypt(data []byte, conn *bufio.ReadWriter) error {
 	truncatedLen := len(data) & ^0xf
-	if truncatedLen == 0 { return nil }
+	if truncatedLen == 0 {
+		return nil
+	}
 	err := binary.Write(conn, binary.LittleEndian, uint32(truncatedLen))
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	_, err = conn.Write(data[:truncatedLen])
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	err = conn.Flush()
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	_, err = io.ReadFull(conn, data[:truncatedLen])
 	return err
 }
 
 func cbcsStripeDecrypt(data []byte, conn *bufio.ReadWriter, decryptBlockLen, skipBlockLen int) error {
 	size := len(data)
-	if size < decryptBlockLen { return nil }
+	if size < decryptBlockLen {
+		return nil
+	}
 	count := ((size - decryptBlockLen) / (decryptBlockLen + skipBlockLen)) + 1
 	totalLen := count * decryptBlockLen
 	err := binary.Write(conn, binary.LittleEndian, uint32(totalLen))
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	pos := 0
 	for {
-		if size-pos < decryptBlockLen { break }
+		if size-pos < decryptBlockLen {
+			break
+		}
 		_, err = conn.Write(data[pos : pos+decryptBlockLen])
-		if err != nil { return err }
+		if err != nil {
+			return err
+		}
 		pos += decryptBlockLen
-		if size-pos < skipBlockLen { break }
+		if size-pos < skipBlockLen {
+			break
+		}
 		pos += skipBlockLen
 	}
 	err = conn.Flush()
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	pos = 0
 	for {
-		if size-pos < decryptBlockLen { break }
+		if size-pos < decryptBlockLen {
+			break
+		}
 		_, err = io.ReadFull(conn, data[pos:pos+decryptBlockLen])
-		if err != nil { return err }
+		if err != nil {
+			return err
+		}
 		pos += decryptBlockLen
-		if size-pos < skipBlockLen { break }
+		if size-pos < skipBlockLen {
+			break
+		}
 		pos += skipBlockLen
 	}
 	return nil
@@ -385,7 +485,9 @@ func cbcsDecryptSample(sample []byte, conn *bufio.ReadWriter, subSamplePatterns 
 		pos += uint32(ss.BytesOfClearData)
 		if ss.BytesOfProtectedData > 0 {
 			err := cbcsDecryptRaw(sample[pos:pos+ss.BytesOfProtectedData], conn, decryptBlockLen, skipBlockLen)
-			if err != nil { return err }
+			if err != nil {
+				return err
+			}
 			pos += ss.BytesOfProtectedData
 		}
 	}
@@ -399,7 +501,9 @@ func cbcsDecryptSamples(samples []mp4.FullSample, conn *bufio.ReadWriter, tenc *
 			subSamplePatterns = senc.SubSamples[i]
 		}
 		err := cbcsDecryptSample(samples[i].Data, conn, subSamplePatterns, tenc)
-		if err != nil { return err }
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -409,35 +513,41 @@ func DecryptFragment(frag *mp4.Fragment, tracks map[uint32]mp4.DecryptTrackInfo,
 	var bytesRemoved uint64 = 0
 	for _, traf := range moof.Trafs {
 		ti, ok := tracks[traf.Tfhd.TrackID]
-		if !ok { return fmt.Errorf("could not find decryption info for track %d", traf.Tfhd.TrackID) }
-		if ti.Sinf == nil { continue }
-		if ti.Sinf.Schm.SchemeType != "cbcs" { return fmt.Errorf("scheme type %s not supported", ti.Sinf.Schm.SchemeType) }
+		if !ok {
+			return fmt.Errorf("could not find decryption info for track %d", traf.Tfhd.TrackID)
+		}
+		if ti.Sinf == nil {
+			continue
+		}
+		if ti.Sinf.Schm.SchemeType != "cbcs" {
+			return fmt.Errorf("scheme type %s not supported", ti.Sinf.Schm.SchemeType)
+		}
 		hasSenc, isParsed := traf.ContainsSencBox()
-		if !hasSenc { return errors.New("no senc box in traf") }
+		if !hasSenc {
+			return errors.New("no senc box in traf")
+		}
 		var senc *mp4.SencBox
-		if traf.Senc != nil { senc = traf.Senc } else { senc = traf.UUIDSenc.Senc }
+		if traf.Senc != nil {
+			senc = traf.Senc
+		} else {
+			senc = traf.UUIDSenc.Senc
+		}
 		if !isParsed {
 			err := senc.ParseReadBox(ti.Sinf.Schi.Tenc.DefaultPerSampleIVSize, traf.Saiz)
-			if err != nil { return err }
-		}
-		samples, err := frag.GetFullSamples(ti.Trex)
-		if err != nil { return err }
-		err = cbcsDecryptSamples(samples, conn, ti.Sinf.Schi.Tenc, senc)
-		if err != nil { return err }
-		
-		removed := traf.RemoveEncryptionBoxes()
-		var newChildren []mp4.Box
-		for _, child := range traf.Children {
-			if child != nil {
-				newChildren = append(newChildren, child)
+			if err != nil {
+				return err
 			}
 		}
-		traf.Children = newChildren
-		bytesRemoved += removed
-		
-		filteredChildren, sxxxRemoved := FilterSbgpSgpd(traf.Children)
-		traf.Children = filteredChildren
-		bytesRemoved += sxxxRemoved
+		samples, err := frag.GetFullSamples(ti.Trex)
+		if err != nil {
+			return err
+		}
+		err = cbcsDecryptSamples(samples, conn, ti.Sinf.Schi.Tenc, senc)
+		if err != nil {
+			return err
+		}
+
+		bytesRemoved += traf.RemoveEncryptionBoxes()
 	}
 	_, psshBytesRemoved := moof.RemovePsshs()
 	bytesRemoved += psshBytesRemoved

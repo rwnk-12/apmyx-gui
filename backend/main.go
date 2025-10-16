@@ -2,12 +2,14 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -109,13 +111,110 @@ type ProbeJob struct {
 	Token      string
 }
 
-func emitStreamInfo(trackNum int, totalTracks int, trackName string, streamGroup string) {
-	// DEBUG: Print to console to see if this is being called
-	fmt.Printf("DEBUG: emitStreamInfo called - track %d/%d, streamGroup='%s'\n", trackNum, totalTracks, streamGroup)
+func checkM3u8(b string, f string) (string, error) {
+	var EnhancedHls string
+	if Config.GetM3u8FromDevice {
+		adamID := b
+		conn, err := net.Dial("tcp", Config.GetM3u8Port)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error connecting to device:", err)
+			return "none", err
+		}
+		defer conn.Close()
+		if f == "song" {
+			fmt.Fprintln(os.Stderr, "Connected to device")
+		}
 
+		adamIDBuffer := []byte(adamID)
+		lengthBuffer := []byte{byte(len(adamIDBuffer))}
+
+		_, err = conn.Write(lengthBuffer)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error writing length to device:", err)
+			return "none", err
+		}
+
+		_, err = conn.Write(adamIDBuffer)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error writing adamID to device:", err)
+			return "none", err
+		}
+
+		response, err := bufio.NewReader(conn).ReadBytes('\n')
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error reading response from device:", err)
+			return "none", err
+		}
+
+		response = bytes.TrimSpace(response)
+		if len(response) > 0 {
+			if f == "song" {
+				fmt.Fprintln(os.Stderr, "Received URL:", string(response))
+			}
+			EnhancedHls = string(response)
+		} else {
+			fmt.Fprintln(os.Stderr, "Received an empty response")
+		}
+	}
+	return EnhancedHls, nil
+}
+
+func emitStreamInfo(trackNum int, totalTracks int, trackName string, streamGroup string) {
 	if streamGroup == "" {
-		fmt.Printf("DEBUG: streamGroup is empty, not emitting\n")
 		return
+	}
+
+	qualityText := streamGroup // fallback to raw if parsing fails
+
+	// Parse ALAC quality (e.g., "audio-alac-96000-24" -> "24-bit/96kHz")
+	if strings.Contains(streamGroup, "alac") {
+		parts := strings.Split(streamGroup, "-")
+		if len(parts) >= 4 { // audio-alac-96000-24 = 4 parts
+			sampleRate, err := strconv.Atoi(parts[2])
+			bitDepth := parts[3]
+			if err == nil {
+				qualityText = fmt.Sprintf("%s-bit/%dkHz", bitDepth, sampleRate/1000)
+			}
+		}
+	} else if strings.Contains(streamGroup, "atmos") {
+		// Parse Atmos - usually just "audio-atmos-..."
+		qualityText = "Dolby Atmos"
+	} else if strings.Contains(streamGroup, "binaural") {
+		// AAC Binaural: audio-binaural-256 (3 parts)
+		parts := strings.Split(streamGroup, "-")
+		if len(parts) >= 3 {
+			if bitrate, err := strconv.Atoi(parts[2]); err == nil {
+				qualityText = fmt.Sprintf("AAC Binaural %dKbps", bitrate)
+			} else {
+				qualityText = "AAC Binaural"
+			}
+		} else {
+			qualityText = "AAC Binaural"
+		}
+	} else if strings.Contains(streamGroup, "downmix") {
+		// AAC Downmix: audio-downmix-256 (3 parts)
+		parts := strings.Split(streamGroup, "-")
+		if len(parts) >= 3 {
+			if bitrate, err := strconv.Atoi(parts[2]); err == nil {
+				qualityText = fmt.Sprintf("AAC Downmix %dKbps", bitrate)
+			} else {
+				qualityText = "AAC Downmix"
+			}
+		} else {
+			qualityText = "AAC Downmix"
+		}
+	} else if strings.Contains(streamGroup, "stereo") {
+		// AAC LC Stereo: audio-stereo-256 (3 parts)
+		parts := strings.Split(streamGroup, "-")
+		if len(parts) >= 3 {
+			if bitrate, err := strconv.Atoi(parts[2]); err == nil {
+				qualityText = fmt.Sprintf("AAC LC %dKbps", bitrate)
+			} else {
+				qualityText = "AAC LC 256Kbps" 
+			}
+		} else {
+			qualityText = "AAC LC 256Kbps"
+		}
 	}
 
 	progressData := map[string]interface{}{
@@ -123,16 +222,13 @@ func emitStreamInfo(trackNum int, totalTracks int, trackName string, streamGroup
 		"tracknum":    trackNum,
 		"totaltracks": totalTracks,
 		"name":        trackName,
-		"streamgroup": streamGroup,
+		"streamgroup": qualityText,
 	}
 
 	jsonData, err := json.Marshal(progressData)
 	if err == nil {
-		fmt.Printf("DEBUG: Emitting JSON: AMDL_PROGRESS::%s\n", string(jsonData))
 		fmt.Fprintf(progressWriter, "AMDL_PROGRESS::%s\n", string(jsonData))
 		progressWriter.Flush()
-	} else {
-		fmt.Printf("DEBUG: JSON marshal error: %v\n", err)
 	}
 }
 
@@ -250,7 +346,6 @@ func checkUrlArtist(url string) (string, string) {
 }
 
 func checkUrlPlaylist(url string) (string, string) {
-	// First, try the original pattern for backwards compatibility
 	originalPat := regexp.MustCompile(`^(?:https:\/\/(?:beta\.music|music|classical\.music)\.apple\.com\/(?:(\w{2})\/playlist|library\/playlist))\/(?:id)?((?:p|pl)\.[\w-]+)(?:$|\?)`)
 	matches := originalPat.FindAllStringSubmatch(url, -1)
 	if matches != nil {
@@ -261,7 +356,6 @@ func checkUrlPlaylist(url string) (string, string) {
 		return storefront, matches[0][2]
 	}
 
-	// If original pattern fails, try the new pattern for playlists with names
 	newPat := regexp.MustCompile(`^(?:https:\/\/(?:beta\.music|music|classical\.music)\.apple\.com\/(\w{2})\/playlist\/[^\/]+\/)(?:id)?(pl\.[\w.-]+)(?:$|\?)`)
 	matches = newPat.FindAllStringSubmatch(url, -1)
 	if matches != nil {
@@ -608,7 +702,6 @@ func ripTrack(track *task.Track, token string, mediaUserToken string) {
 		err = track.GetAlbumData(token)
 		if err != nil {
 			fmt.Println("Warning: Failed to get original album data:", err)
-			// Continue with playlist metadata instead of failing
 		}
 	}
 
@@ -641,6 +734,20 @@ func ripTrack(track *task.Track, token string, mediaUserToken string) {
 		return
 	}
 
+	needCheck := false
+	if Config.GetM3u8Mode == "all" {
+		needCheck = true
+	} else if Config.GetM3u8Mode == "hires" && contains(track.Resp.Attributes.AudioTraits, "hi-res-lossless") {
+		needCheck = true
+	}
+	var EnhancedHls_m3u8 string
+	if needCheck {
+		EnhancedHls_m3u8, _ = checkM3u8(track.ID, "song")
+		if strings.HasSuffix(EnhancedHls_m3u8, ".m3u8") {
+			track.M3u8 = EnhancedHls_m3u8
+		}
+	}
+
 	trackM3u8Url, actualCodec, streamGroup, err := getStreamForCodec(track.M3u8, preferredCodec())
 	if err != nil {
 		fmt.Fprintf(progressWriter, "AMDL_PROGRESS::%s\n", fmt.Sprintf(`{"type": "track_skip", "name": "%s", "reason": "Not available in %s"}`, track.Resp.Attributes.Name, preferredCodec()))
@@ -649,6 +756,8 @@ func ripTrack(track *task.Track, token string, mediaUserToken string) {
 		return
 	}
 	track.Codec = actualCodec
+
+	emitStreamInfo(track.TaskNum, track.TaskTotal, track.Resp.Attributes.Name, streamGroup)
 
 	runner := "runv2"
 	if actualCodec == "AAC" {
@@ -787,41 +896,49 @@ func ripTrack(track *task.Track, token string, mediaUserToken string) {
 		}
 	}
 
-	tags := []string{
-		"tool=",
-	}
-	if Config.TagOptions.UseMp4BoxArtist && Config.TagOptions.WriteArtist {
-		tags = append(tags, fmt.Sprintf("artist=%s", track.Resp.Attributes.ArtistName))
-	}
-	if Config.TagOptions.WriteCover && Config.EmbedCover {
-		if (strings.Contains(track.PreID, "pl.") || strings.Contains(track.PreID, "ra.")) && Config.DlAlbumcoverForPlaylist {
+	if Config.EmbedCover {
+		tags := []string{"tool="}
+
+		if (strings.Contains(track.PreID, "pl.") || strings.Contains(track.PreID, "ra.")) &&
+			Config.DlAlbumcoverForPlaylist {
 			track.CoverPath, err = writeCover(track.SaveDir, track.ID, track.Resp.Attributes.Artwork.URL)
 			if err != nil {
 				fmt.Fprintln(os.Stderr, "Failed to write cover.")
 			}
 		}
-		tags = append(tags, fmt.Sprintf("cover=%s", track.CoverPath))
-	}
-	tagsString := strings.Join(tags, ":")
-	cmd := exec.Command("MP4Box", "-itags", tagsString, trackPath)
-	if err := cmd.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Embed failed: %v\n", err)
-		counter.Error++
-		return
-	}
-	if (strings.Contains(track.PreID, "pl.") || strings.Contains(track.PreID, "ra.")) && Config.DlAlbumcoverForPlaylist {
-		if err := os.Remove(track.CoverPath); err != nil {
-			fmt.Fprintf(os.Stderr, "Error deleting file: %s\n", track.CoverPath)
-			counter.Error++
-			return
+
+		if track.CoverPath != "" {
+			tags = append(tags, fmt.Sprintf("artist=%s", track.Resp.Attributes.ArtistName))
+			tags = append(tags, fmt.Sprintf("cover=%s", track.CoverPath))
+
+			tagsString := strings.Join(tags, ":")
+			cmd := exec.Command("MP4Box", "-itags", tagsString, trackPath)
+			if err := cmd.Run(); err != nil {
+				fmt.Fprintf(os.Stderr, "MP4Box embed failed: %v\n", err)
+			} else {
+				fmt.Fprintln(os.Stderr, "✓ Cover embedded with MP4Box")
+			}
+
+			if strings.Contains(track.PreID, "pl.") || strings.Contains(track.PreID, "ra.") {
+				os.Remove(track.CoverPath)
+			}
 		}
 	}
+
 	track.SavePath = trackPath
 	err = writeMP4Tags(track, lrc)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "\u26A0 Failed to write tags in media: %v\n", err)
 		counter.Unavailable++
 		return
+	}
+
+	if (strings.Contains(track.PreID, "pl.") || strings.Contains(track.PreID, "ra.")) && Config.DlAlbumcoverForPlaylist {
+		if err := os.Remove(track.CoverPath); err != nil {
+			fmt.Fprintf(os.Stderr, "Error deleting file: %s\n", track.CoverPath)
+			counter.Error++
+			return
+		}
 	}
 
 	fmt.Fprintf(progressWriter, "AMDL_PROGRESS::%s\n", fmt.Sprintf(
@@ -921,7 +1038,6 @@ func ripPlaylist(playlistId string, token string, storefront string, mediaUserTo
 	}
 	meta := playlist.Resp
 
-	// Detect if this is a user playlist for better progress tracking
 	isUserPL := isUserPlaylist(playlistId)
 
 	if json_output {
@@ -1103,10 +1219,6 @@ func ripPlaylist(playlistId string, token string, storefront string, mediaUserTo
 	}
 
 	for i := range playlist.Tracks {
-		trackNum := i + 1
-		totalTracks := len(playlist.Tracks)
-
-		// GET PROPER M3U8 URL (same as ripTrack does)
 		manifest, err := ampapi.GetSongResp(storefront, playlist.Tracks[i].ID, playlist.Language, token)
 		if err != nil {
 			continue
@@ -1117,17 +1229,8 @@ func ripPlaylist(playlistId string, token string, storefront string, mediaUserTo
 			m3u8Url = manifest.Data[0].Attributes.ExtendedAssetUrls.EnhancedHls
 		}
 
-		// GET STREAM INFO (same method as ripTrack)
-		_, _, streamGroup, err := getStreamForCodec(m3u8Url, preferredCodec())
-		if err == nil && streamGroup != "" {
-			// EMIT STREAM INFO FOR GUI
-			emitStreamInfo(trackNum, totalTracks, playlist.Tracks[i].Resp.Attributes.Name, streamGroup)
-		}
-
-		// Store M3U8 for ripTrack to avoid double-fetching
 		playlist.Tracks[i].M3u8 = m3u8Url
 
-		// THEN DOWNLOAD THE TRACK
 		ripTrack(&playlist.Tracks[i], token, mediaUserToken)
 	}
 	return nil
@@ -1273,6 +1376,19 @@ func ripAlbum(albumId string, token string, storefront string, mediaUserToken st
 					Codec = "AAC"
 					Quality = "256Kbps"
 				} else {
+					needCheck := false
+					if Config.GetM3u8Mode == "all" {
+						needCheck = true
+					} else if Config.GetM3u8Mode == "hires" && contains(meta.Data[0].Relationships.Tracks.Data[0].Attributes.AudioTraits, "hi-res-lossless") {
+						needCheck = true
+					}
+					var EnhancedHls_m3u8 string
+					if needCheck {
+						EnhancedHls_m3u8, _ = checkM3u8(meta.Data[0].Relationships.Tracks.Data[0].ID, "album")
+						if strings.HasSuffix(EnhancedHls_m3u8, ".m3u8") {
+							manifest1.Data[0].Attributes.ExtendedAssetUrls.EnhancedHls = EnhancedHls_m3u8
+						}
+					}
 					_, Quality, err = extractMedia(manifest1.Data[0].Attributes.ExtendedAssetUrls.EnhancedHls, true)
 					if err != nil {
 						fmt.Fprintf(os.Stderr, "Failed to extract quality from manifest.\n %v\n", err)
@@ -1356,7 +1472,6 @@ func ripAlbum(albumId string, token string, storefront string, mediaUserToken st
 					album.Tracks[i].TaskNum = album.Tracks[i].Resp.Attributes.TrackNumber
 					album.Tracks[i].TaskTotal = meta.Data[0].Attributes.TrackCount
 					
-					// GET STREAM INFO (same as full album does)
 					manifest, err := ampapi.GetSongResp(storefront, album.Tracks[i].ID, album.Language, token)
 					if err == nil {
 						var m3u8Url string
@@ -1364,13 +1479,6 @@ func ripAlbum(albumId string, token string, storefront string, mediaUserToken st
 							m3u8Url = manifest.Data[0].Attributes.ExtendedAssetUrls.EnhancedHls
 						}
 						
-						// EMIT STREAM INFO FOR GUI
-						_, _, streamGroup, err := getStreamForCodec(m3u8Url, preferredCodec())
-						if err == nil && streamGroup != "" {
-							emitStreamInfo(album.Tracks[i].TaskNum, album.Tracks[i].TaskTotal, album.Tracks[i].Resp.Attributes.Name, streamGroup)
-						}
-						
-						// Store M3U8 to avoid double-fetching in ripTrack
 						album.Tracks[i].M3u8 = m3u8Url
 					}
 					
@@ -1383,10 +1491,6 @@ func ripAlbum(albumId string, token string, storefront string, mediaUserToken st
 	}
 
 	for i := range album.Tracks {
-		trackNum := i + 1
-		totalTracks := len(album.Tracks)
-
-		// GET PROPER M3U8 URL (same as ripTrack does)
 		manifest, err := ampapi.GetSongResp(storefront, album.Tracks[i].ID, album.Language, token)
 		if err != nil {
 			continue
@@ -1397,17 +1501,8 @@ func ripAlbum(albumId string, token string, storefront string, mediaUserToken st
 			m3u8Url = manifest.Data[0].Attributes.ExtendedAssetUrls.EnhancedHls
 		}
 
-		// GET STREAM INFO (same method as ripTrack)
-		_, _, streamGroup, err := getStreamForCodec(m3u8Url, preferredCodec())
-		if err == nil && streamGroup != "" {
-			// EMIT STREAM INFO FOR GUI
-			emitStreamInfo(trackNum, totalTracks, album.Tracks[i].Resp.Attributes.Name, streamGroup)
-		}
-
-		// Store M3U8 for ripTrack to avoid double-fetching
 		album.Tracks[i].M3u8 = m3u8Url
 
-		// THEN DOWNLOAD THE TRACK
 		ripTrack(&album.Tracks[i], token, mediaUserToken)
 	}
 	return nil
@@ -1435,7 +1530,6 @@ func getStreamForCodec(m3u8Url, codec string) (string, string, string, error) {
 		return "", "", "", errors.New("m3u8 not of master type")
 	}
 	master := playlist.(*m3u8.MasterPlaylist)
-	sort.Slice(master.Variants, func(i, j int) bool { return master.Variants[i].AverageBandwidth > master.Variants[j].AverageBandwidth })
 
 	if codec == "ATMOS" {
 		for _, v := range master.Variants {
@@ -1446,14 +1540,42 @@ func getStreamForCodec(m3u8Url, codec string) (string, string, string, error) {
 		}
 		return "", "", "", fmt.Errorf("codec %s not found", codec)
 	}
+
 	if codec == "ALAC" {
+		var bestVariant *m3u8.Variant
+		highestSampleRate := 0
+
+		sort.Slice(master.Variants, func(i, j int) bool {
+			return master.Variants[i].AverageBandwidth > master.Variants[j].AverageBandwidth
+		})
+
 		for _, v := range master.Variants {
-			if v.Codecs == "alac" {
-				u := masterUrl.ResolveReference(&url.URL{Path: v.URI})
-				return u.String(), "ALAC", v.Audio, nil
+			variant := v
+			if variant.Codecs == "alac" {
+				split := strings.Split(variant.Audio, "-")
+				if len(split) >= 3 {
+					sampleRate, err := strconv.Atoi(split[len(split)-2])
+					if err != nil {
+						sampleRate, err = strconv.Atoi(split[len(split)-1])
+						if err != nil {
+							continue
+						}
+					}
+
+					if sampleRate > highestSampleRate && sampleRate <= Config.AlacMax {
+						highestSampleRate = sampleRate
+						bestVariant = variant
+					}
+				}
 			}
 		}
-		return "", "", "", fmt.Errorf("codec %s not found", codec)
+
+		if bestVariant != nil {
+			u := masterUrl.ResolveReference(&url.URL{Path: bestVariant.URI})
+			return u.String(), "ALAC", bestVariant.Audio, nil
+		}
+
+		return "", "", "", fmt.Errorf("codec %s not found within the specified alac-max limit (%d)", codec, Config.AlacMax)
 	}
 
 	if codec == "AAC" {
@@ -1529,9 +1651,7 @@ func getBandwidthForStream(m3u8Url, codec, streamGroup string) (uint32, error) {
 	return 0, errors.New("stream group not found in manifest")
 }
 
-// Helper function to check if album data is valid
 func hasValidAlbumData(track *task.Track) bool {
-	// Check for nil FIRST before accessing fields
 	return !reflect.ValueOf(track.AlbumData).IsZero() &&
 		track.AlbumData.ID != "" &&
 		!reflect.ValueOf(track.AlbumData.Attributes).IsZero() &&
@@ -1540,151 +1660,71 @@ func hasValidAlbumData(track *task.Track) bool {
 
 func writeMP4Tags(track *task.Track, lrc string) error {
 	t := &mp4tag.MP4Tags{
-		Custom: make(map[string]string),
-	}
-
-	if Config.TagOptions.WriteTitle {
-		t.Title = track.Resp.Attributes.Name
-	}
-	if Config.TagOptions.WriteArtist {
-		t.Artist = track.Resp.Attributes.ArtistName
-		t.Custom["PERFORMER"] = track.Resp.Attributes.ArtistName
-	}
-	if Config.TagOptions.WriteArtistSort {
-		t.ArtistSort = track.Resp.Attributes.ArtistName
-	}
-	if Config.TagOptions.WriteAlbum {
-		t.Album = track.Resp.Attributes.AlbumName
-	}
-	if Config.TagOptions.WriteAlbumSort {
-		t.AlbumSort = track.Resp.Attributes.AlbumName
-	}
-	if Config.TagOptions.WriteGenre && len(track.Resp.Attributes.GenreNames) > 0 {
-		t.CustomGenre = track.Resp.Attributes.GenreNames[0]
-	}
-	if Config.TagOptions.WriteComposer {
-		t.Composer = track.Resp.Attributes.ComposerName
-	}
-	if Config.TagOptions.WriteComposerSort {
-		t.ComposerSort = track.Resp.Attributes.ComposerName
-	}
-	if Config.TagOptions.WriteDiscTrack {
-		t.TrackNumber = int16(track.Resp.Attributes.TrackNumber)
-		t.DiscNumber = int16(track.Resp.Attributes.DiscNumber)
-	}
-	if Config.TagOptions.WriteISRC {
-		t.Custom["ISRC"] = track.Resp.Attributes.Isrc
-	}
-	if Config.TagOptions.WriteDate {
-		t.Custom["RELEASETIME"] = track.Resp.Attributes.ReleaseDate
-	}
-	if Config.TagOptions.WriteLyrics {
-		t.Lyrics = lrc
+		Title:       track.Resp.Attributes.Name,
+		TitleSort:   track.Resp.Attributes.Name,
+		Artist:      track.Resp.Attributes.ArtistName,
+		ArtistSort:  track.Resp.Attributes.ArtistName,
+		Custom: map[string]string{
+			"PERFORMER":   track.Resp.Attributes.ArtistName,
+			"RELEASETIME": track.Resp.Attributes.ReleaseDate,
+			"ISRC":        track.Resp.Attributes.Isrc,
+			"LABEL":       "",
+			"UPC":         "",
+		},
+		Composer:     track.Resp.Attributes.ComposerName,
+		ComposerSort: track.Resp.Attributes.ComposerName,
+		CustomGenre:  track.Resp.Attributes.GenreNames[0],
+		Lyrics:       lrc,
+		TrackNumber:  int16(track.Resp.Attributes.TrackNumber),
+		DiscNumber:   int16(track.Resp.Attributes.DiscNumber),
+		Album:        track.Resp.Attributes.AlbumName,
+		AlbumSort:    track.Resp.Attributes.AlbumName,
 	}
 
 	if track.PreType == "albums" {
 		albumID, err := strconv.ParseUint(track.PreID, 10, 32)
-		if err == nil {
-			t.ItunesAlbumID = int32(albumID)
+		if err != nil {
+			return err
 		}
+		t.ItunesAlbumID = int32(albumID)
 	}
 
 	if len(track.Resp.Relationships.Artists.Data) > 0 {
 		artistID, err := strconv.ParseUint(track.Resp.Relationships.Artists.Data[0].ID, 10, 32)
-		if err == nil {
-			t.ItunesArtistID = int32(artistID)
+		if err != nil {
+			return err
 		}
+		t.ItunesArtistID = int32(artistID)
 	}
 
 	if (track.PreType == "playlists" || track.PreType == "stations") && !Config.UseSongInfoForPlaylist {
-		if Config.TagOptions.WriteDiscTrack {
-			t.DiscNumber = 1
-			t.DiscTotal = 1
-			t.TrackNumber = int16(track.TaskNum)
-			t.TrackTotal = int16(track.TaskTotal)
-		}
-		if Config.TagOptions.WriteAlbum {
-			t.Album = track.PlaylistData.Attributes.Name
-		}
-		if Config.TagOptions.WriteAlbumSort {
-			t.AlbumSort = track.PlaylistData.Attributes.Name
-		}
-		if Config.TagOptions.WriteAlbumArtist {
-			t.AlbumArtist = track.PlaylistData.Attributes.ArtistName
-			t.AlbumArtistSort = track.PlaylistData.Attributes.ArtistName
-		}
+		t.DiscNumber = 1
+		t.DiscTotal = 1
+		t.TrackNumber = int16(track.TaskNum)
+		t.TrackTotal = int16(track.TaskTotal)
+		t.Album = track.PlaylistData.Attributes.Name
+		t.AlbumSort = track.PlaylistData.Attributes.Name
+		t.AlbumArtist = track.PlaylistData.Attributes.ArtistName
+		t.AlbumArtistSort = track.PlaylistData.Attributes.ArtistName
 	} else if (track.PreType == "playlists" || track.PreType == "stations") && Config.UseSongInfoForPlaylist {
-		if hasValidAlbumData(track) {
-			if Config.TagOptions.WriteDiscTrack {
-				t.DiscTotal = int16(track.DiscTotal)
-				t.TrackTotal = int16(track.AlbumData.Attributes.TrackCount)
-			}
-			if Config.TagOptions.WriteAlbum {
-				t.Album = track.AlbumData.Attributes.Name
-			}
-			if Config.TagOptions.WriteAlbumSort {
-				t.AlbumSort = track.AlbumData.Attributes.Name
-			}
-			if Config.TagOptions.WriteAlbumArtist {
-				t.AlbumArtist = track.AlbumData.Attributes.ArtistName
-				t.AlbumArtistSort = track.AlbumData.Attributes.ArtistName
-			}
-			if Config.TagOptions.WriteUPC {
-				t.Custom["UPC"] = track.AlbumData.Attributes.Upc
-			}
-			if Config.TagOptions.WritePublisher {
-				t.Publisher = track.AlbumData.Attributes.RecordLabel
-			}
-			if Config.TagOptions.WriteDate {
-				t.Date = track.AlbumData.Attributes.ReleaseDate
-			}
-			if Config.TagOptions.WriteCopyright {
-				t.Copyright = track.AlbumData.Attributes.Copyright
-			}
-		} else {
-			fmt.Println("Warning: Album data not available, using playlist metadata as fallback.")
-			if Config.TagOptions.WriteDiscTrack {
-				t.DiscNumber = 1
-				t.DiscTotal = 1
-				t.TrackNumber = int16(track.TaskNum)
-				t.TrackTotal = int16(track.TaskTotal)
-			}
-			if Config.TagOptions.WriteAlbum {
-				t.Album = track.PlaylistData.Attributes.Name
-			}
-			if Config.TagOptions.WriteAlbumSort {
-				t.AlbumSort = track.PlaylistData.Attributes.Name
-			}
-			if Config.TagOptions.WriteAlbumArtist {
-				t.AlbumArtist = track.PlaylistData.Attributes.ArtistName
-				t.AlbumArtistSort = track.PlaylistData.Attributes.ArtistName
-			}
-		}
-	} else { // Regular album
-		if hasValidAlbumData(track) {
-			if Config.TagOptions.WriteDiscTrack {
-				t.DiscTotal = int16(track.DiscTotal)
-				t.TrackTotal = int16(track.AlbumData.Attributes.TrackCount)
-			}
-			if Config.TagOptions.WriteAlbumArtist {
-				t.AlbumArtist = track.AlbumData.Attributes.ArtistName
-			}
-			if Config.TagOptions.WriteAlbumArtistSort {
-				t.AlbumArtistSort = track.AlbumData.Attributes.ArtistName
-			}
-			if Config.TagOptions.WriteUPC {
-				t.Custom["UPC"] = track.AlbumData.Attributes.Upc
-			}
-			if Config.TagOptions.WriteDate {
-				t.Date = track.AlbumData.Attributes.ReleaseDate
-			}
-			if Config.TagOptions.WriteCopyright {
-				t.Copyright = track.AlbumData.Attributes.Copyright
-			}
-			if Config.TagOptions.WritePublisher {
-				t.Publisher = track.AlbumData.Attributes.RecordLabel
-			}
-		}
+		t.DiscTotal = int16(track.DiscTotal)
+		t.TrackTotal = int16(track.AlbumData.Attributes.TrackCount)
+		t.AlbumArtist = track.AlbumData.Attributes.ArtistName
+		t.AlbumArtistSort = track.AlbumData.Attributes.ArtistName
+		t.Custom["UPC"] = track.AlbumData.Attributes.Upc
+		t.Custom["LABEL"] = track.AlbumData.Attributes.RecordLabel
+		t.Date = track.AlbumData.Attributes.ReleaseDate
+		t.Copyright = track.AlbumData.Attributes.Copyright
+		t.Publisher = track.AlbumData.Attributes.RecordLabel
+	} else {
+		t.DiscTotal = int16(track.DiscTotal)
+		t.TrackTotal = int16(track.AlbumData.Attributes.TrackCount)
+		t.AlbumArtist = track.AlbumData.Attributes.ArtistName
+		t.AlbumArtistSort = track.AlbumData.Attributes.ArtistName
+		t.Custom["UPC"] = track.AlbumData.Attributes.Upc
+		t.Date = track.AlbumData.Attributes.ReleaseDate
+		t.Copyright = track.AlbumData.Attributes.Copyright
+		t.Publisher = track.AlbumData.Attributes.RecordLabel
 	}
 
 	if track.Resp.Attributes.ContentRating == "explicit" {
@@ -1695,20 +1735,17 @@ func writeMP4Tags(track *task.Track, lrc string) error {
 		t.ItunesAdvisory = mp4tag.ItunesAdvisoryNone
 	}
 
-	del := []string{}
-	if Config.TagOptions.DeleteSortOnWrite {
-		del = append(del, "artist_sort", "album_sort", "album_artist_sort", "title_sort", "composer_sort")
-	}
-
 	mp4, err := mp4tag.Open(track.SavePath)
 	if err != nil {
 		return err
 	}
 	defer mp4.Close()
-	err = mp4.Write(t, del)
+
+	err = mp4.Write(t, []string{})
 	if err != nil {
 		return err
 	}
+
 	return nil
 }
 
@@ -1775,25 +1812,21 @@ func mvDownloader(adamID string, saveDir string, token string, storefront string
 		downloaded := videoBytesDownloaded.Load() + audioBytesDownloaded.Load()
 		total := totalVideoBytes.Load() + totalAudioBytes.Load()
 
-		// Emit size event once when total becomes known
 		if !progressSent && total > 0 {
 			fmt.Fprintf(progressWriter, "AMDL_PROGRESS::%s\n",
 				fmt.Sprintf(`{"type":"size","total_bytes":%d}`, total))
 			progressSent = true
 		}
 
-		// Emit bytes on every tick
 		if total > 0 {
 			fmt.Fprintf(progressWriter, "AMDL_PROGRESS::%s\n",
 				fmt.Sprintf(`{"type":"bytes","downloaded_bytes":%d,"total_bytes":%d}`, downloaded, total))
 		}
 
-		// Keep existing track_progress percent emission for the progress bar itself
 		fmt.Fprintf(progressWriter, "AMDL_PROGRESS::%s\n",
 			fmt.Sprintf(`{"type":"track_progress","track_num":%d,"total_tracks":%d,"name":"%s","percent":%d}`,
 				track.TaskNum, track.TaskTotal, MVInfo.Data[0].Attributes.Name, int(percent*100)))
 
-		// Use a throttled flush
 		now := time.Now()
 		if now.Sub(lastFlush) >= 1*time.Second {
 			progressWriter.Flush()
@@ -1807,7 +1840,6 @@ func mvDownloader(adamID string, saveDir string, token string, storefront string
 	close(done)
 	wg.Wait()
 
-	// Send 90% progress - downloads complete
 	if track != nil && progressWriter != nil {
 		fmt.Fprintf(progressWriter, "AMDL_PROGRESS::%s\n", fmt.Sprintf(
 			`{"type":"track_progress","track_num":%d,"total_tracks":%d,"name":"%s","percent":90}`,
@@ -1837,14 +1869,12 @@ func mvDownloader(adamID string, saveDir string, token string, storefront string
 	tagsString := strings.Join(tags, ":")
 	fmt.Fprintln(os.Stderr, "MV Remuxing...")
 
-	// Run MP4Box in goroutine with progress simulation (90-99%)
 	remuxDone := make(chan error, 1)
 	go func() {
 		muxCmd := exec.Command("MP4Box", "-itags", tagsString, "-quiet", "-add", vidPath, "-add", audPath, "-keep-utc", "-new", mvOutPath)
 		remuxDone <- muxCmd.Run()
 	}()
 
-	// Increment progress during remuxing
 	progressTicker := time.NewTicker(1 * time.Second)
 	defer progressTicker.Stop()
 	currentProgress := 90
@@ -1861,7 +1891,7 @@ remuxLoop:
 		case <-progressTicker.C:
 			currentProgress++
 			if currentProgress > 99 {
-				currentProgress = 99 // Cap at 99% until actual completion
+				currentProgress = 99
 			}
 			if track != nil && progressWriter != nil {
 				fmt.Fprintf(progressWriter, "AMDL_PROGRESS::%s\n", fmt.Sprintf(
@@ -2121,7 +2151,6 @@ func main() {
 	progressWriter = bufio.NewWriter(os.Stdout)
 	defer progressWriter.Flush()
 
-	
 	transport := &http.Transport{
 		MaxIdleConns:        100,
 		MaxIdleConnsPerHost: 100,
@@ -2144,14 +2173,12 @@ func main() {
 		}
 	}
 
-	
 	codecPreferenceFlag := flag.String("codec-preference", "", "Codec preference")
 	songFlag := flag.Bool("song", false, "Download a single song")
 	mvFlag := flag.Bool("music-video", false, "Download a music video")
 	jsonOutputFlag := flag.Bool("json-output", false, "Output metadata as JSON")
 	resolveArtistFlag := flag.String("resolve-artist", "", "Resolve artist discography")
 
-	
 	flag.StringVar(&Config.AlacSaveFolder, "alac-save-folder", Config.AlacSaveFolder, "Overrides alac-save-folder from config")
 	flag.StringVar(&Config.AtmosSaveFolder, "atmos-save-folder", Config.AtmosSaveFolder, "Overrides atmos-save-folder from config")
 	flag.StringVar(&Config.AacSaveFolder, "aac-save-folder", Config.AacSaveFolder, "Overrides aac-save-folder from config")
@@ -2193,7 +2220,6 @@ func main() {
 
 	flag.Parse() 
 
-	
 	codecPreference = *codecPreferenceFlag
 	dl_song = *songFlag
 	dl_mv = *mvFlag

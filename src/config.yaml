@@ -2,7 +2,7 @@ aac-save-folder: AAC Downloads
 aac-type: aac-lc
 alac-max: 192000
 alac-save-folder: ALAC Downloads
-album-folder-format: '{ArtistName} - {AlbumName} [{ReleaseYear}]'
+album-folder-format: '{AlbumName} [{ReleaseYear}]'
 apple-master-choice: '[M]'
 artist-folder-format: '{UrlArtistName}'
 atmos-max: 2768
