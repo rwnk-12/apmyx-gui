@@ -12,17 +12,14 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import pyqtSignal, QTimer, QThreadPool, pyqtSlot
 from PyQt6.QtGui import QAction
-
 from ..preview_player import Player
 from core.download_worker import DownloadWorker
-
 from .player_bar import PlayerBar
 from ..search_cards import LoadingTile, PlayButton
 from ..queue_panel import QueuePanel
 from ..view_select import SelectionDropdown
 from .dialogs import RestartDialog, StorefrontRequiredDialog
 from ..video_preview_dialog import VideoPreviewDialog
-
 from .mixins.ui_setup_features import UiSetupFeatures
 from .mixins.layout_animation_features import LayoutAnimationFeatures
 from .mixins.search_features import SearchFeatures
@@ -53,14 +50,11 @@ class MainWindow(QMainWindow, UiSetupFeatures, LayoutAnimationFeatures, SearchFe
         self.list_loading_indicator = None
         self.storefront_change_count = 0
         self._pending_song_by_job = {}
-
         self.sidebar_open = False
         self.queue_open = False
         self._sidebar_prev_open = None
         self._queue_prev_open = None
-
         self.download_worker = DownloadWorker(self.controller.downloader_executable, self.controller)
-
         self.current_query = None
         self.search_cache = {}
         self.search_offsets = {}
@@ -71,17 +65,15 @@ class MainWindow(QMainWindow, UiSetupFeatures, LayoutAnimationFeatures, SearchFe
         self.tab_containers = {}
         self.albums_tab_searched = False
         self.music_videos_tab_searched = False
+        self.playlists_tab_searched = False
         self.loading_spinners = {}
         self.active_card = None
         self.loading_tile = LoadingTile(self)
         self.loading_tile.hide()
-
         QThreadPool.globalInstance().setMaxThreadCount(4)
-
         self._reflow_timer = QTimer(self)
         self._reflow_timer.setSingleShot(True)
         self._reflow_timer.timeout.connect(self._reflow_all_grids)
-
         self.player = Player(self)
         if hasattr(self.player, 'previews_dir'):
             self.player._cleanup_all_previews()
@@ -92,65 +84,66 @@ class MainWindow(QMainWindow, UiSetupFeatures, LayoutAnimationFeatures, SearchFe
             Player.PausedState: PlayButton.State.Paused,
             Player.LoadingState: PlayButton.State.Loading,
         }
-
         self.setup_ui()
         self.setup_worker_connections()
-        self._load_initial_settings()
-        
+        QTimer.singleShot(0, self._load_initial_settings)
         self.pending_song_id = None
         self.track_selection_dialog = None
-
         self.search_action = QAction(self)
         self.spinner_action = None
         self.spinner_movie = None
-        
         QTimer.singleShot(0, self.search_input.line_edit.setFocus)
 
     def _load_initial_settings(self):
-        """Load settings from config to set initial UI state."""
+        valid_qualities = ["Atmos", "ALAC", "AAC"]
         try:
             with open('config.yaml', 'r') as f:
                 config = yaml.safe_load(f) or {}
-            
             aac_type = config.get('aac-type', 'aac-lc')
             self.aac_quality_selector.setCurrentText(aac_type)
-
             preferred_quality = config.get('preferred-quality')
-            if preferred_quality:
+            if preferred_quality in valid_qualities:
                 self.quality_selector.setCurrentText(preferred_quality)
-
+                self._on_quality_selection_changed(preferred_quality)
+            else:
+                logging.warning(f"Invalid preferred-quality '{preferred_quality}' in config; defaulting to 'Atmos'")
+                config['preferred-quality'] = 'Atmos'
+                with open('config.yaml', 'w') as f:
+                    yaml.dump(config, f, sort_keys=False, allow_unicode=True)
+                self.quality_selector.setCurrentIndex(0)
+                self._on_quality_selection_changed('Atmos')
         except FileNotFoundError:
-            pass 
+            config = {'preferred-quality': 'Atmos', 'aac-type': 'aac-lc'}
+            with open('config.yaml', 'w') as f:
+                yaml.dump(config, f, sort_keys=False, allow_unicode=True)
+            self.quality_selector.setCurrentIndex(0)
+            self.aac_quality_selector.setCurrentText('aac-lc')
+            self._on_quality_selection_changed('Atmos')
         except Exception as e:
             logging.error(f"Failed to load initial settings from config.yaml: {e}")
+            self.quality_selector.setCurrentIndex(0)
+            self.aac_quality_selector.setCurrentText('aac-lc')
+            self._on_quality_selection_changed('Atmos')
 
     @pyqtSlot()
     def on_force_clear_all_jobs(self):
-        """Slot to clear all internal job tracking lists."""
         logging.info("MainWindow force clearing all job queues.")
         self._disco_batch = None
 
     def _restart_application(self):
-        """Schedules a restart of the application."""
         logging.info("Scheduling application restart...")
-        
         executable = sys.executable
         args = sys.argv
-        
-        
         if sys.platform == "win32":
             subprocess.Popen([executable] + args, creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP)
         else:
             subprocess.Popen([executable] + args)
-            
         QApplication.instance().quit()
 
     def _show_restart_popup(self):
         dialog = RestartDialog(self)
-  
         mw_rect = self.geometry()
         dialog.move(mw_rect.center() - dialog.rect().center())
-        
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._restart_application()
 
@@ -158,7 +151,6 @@ class MainWindow(QMainWindow, UiSetupFeatures, LayoutAnimationFeatures, SearchFe
         dialog = StorefrontRequiredDialog(self)
         mw_rect = self.geometry()
         dialog.move(mw_rect.center() - dialog.rect().center())
-        
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.open_settings_page()
             if hasattr(self.settings_page, 'focus_storefront'):
@@ -195,7 +187,7 @@ class MainWindow(QMainWindow, UiSetupFeatures, LayoutAnimationFeatures, SearchFe
         QTimer.singleShot(10000, self.popup_label.hide)
 
     def update_queue_button(self, count):
-        pass 
+        pass
 
     def _clear_layout(self, layout, delete_widgets=True):
         if layout is not None:
@@ -217,26 +209,18 @@ class MainWindow(QMainWindow, UiSetupFeatures, LayoutAnimationFeatures, SearchFe
         pass
 
     def _position_fetch_popup(self):
-     
         self.fetch_progress_popup.adjustSize()
         popup_x = (self.width() - self.fetch_progress_popup.width()) // 2
-        
- 
         bottom_margin = 30
         if self.player_bar.isVisible():
             bottom_margin += self.player_bar.height()
-            
         popup_y = self.height() - self.fetch_progress_popup.height() - bottom_margin
         self.fetch_progress_popup.move(popup_x, popup_y)
 
     def resizeEvent(self, event):
-
         super().resizeEvent(event)
-        
-       
         if hasattr(self, "_reflow_timer"):
             self._reflow_timer.start(100)
-        
         if self.fetch_progress_popup.isVisible():
             self._position_fetch_popup()
 
@@ -244,37 +228,24 @@ class MainWindow(QMainWindow, UiSetupFeatures, LayoutAnimationFeatures, SearchFe
         if self._is_shutting_down:
             event.accept()
             return
-
         self._is_shutting_down = True
         event.ignore()
-
         try:
             logging.info("Initiating shutdown sequence...")
-            
             if hasattr(self, 'player'):
                 self.player.cleanup()
-            
-         
             self.download_worker.cancel_all_jobs()
-
             logging.info("Waiting for thread pools to shut down...")
             if not self.controller.thread_pool.waitForDone(2000):
                 logging.warning("Controller thread pool timeout on shutdown.")
-
             if not self.download_worker.thread_pool.waitForDone(2000):
                 logging.warning("Download worker thread pool timeout on shutdown.")
-
             if not QThreadPool.globalInstance().waitForDone(2000):
                 logging.warning("Global thread pool timeout on shutdown.")
-
             self._force_terminate_subprocesses()
-
             self._safe_cleanup_widgets()
-
             logging.info("Shutdown sequence complete. Scheduling application quit.")
-           
             QTimer.singleShot(0, QApplication.instance().quit)
-
         except Exception as e:
             logging.error(f"Error during shutdown: {e}")
             os._exit(1)
@@ -294,16 +265,13 @@ class MainWindow(QMainWindow, UiSetupFeatures, LayoutAnimationFeatures, SearchFe
     def _safe_cleanup_widgets(self):
         try:
             self.hide()
-            
             if hasattr(self, 'page_stack'):
                 while self.page_stack.count() > 0:
                     widget = self.page_stack.widget(0)
                     self.page_stack.removeWidget(widget)
                     widget.deleteLater()
-
             if hasattr(self, 'track_selection_dialog') and self.track_selection_dialog:
                 self.track_selection_dialog.deleteLater()
-
         except RuntimeError as e:
             if "wrapped C/C++ object" in str(e):
                 logging.warning(f"Ignored widget deletion error during shutdown: {e}")

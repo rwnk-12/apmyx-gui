@@ -261,7 +261,7 @@ class ArtistHeroWidget(QWidget):
         self.download_all_btn.clicked.connect(lambda: self.download_all_requested.emit())
         info_layout.addWidget(self.download_all_btn, 0, Qt.AlignmentFlag.AlignLeft)
         
-        self.include_mv_checkbox = CustomCheckBox("Including Music Videos")
+        self.include_mv_checkbox = CustomCheckBox("Include Music Videos too? Click here.")
         self.include_mv_checkbox.setStyleSheet("color: #ccc; font-weight: normal; font-size: 9pt; background: transparent;")
         info_layout.addWidget(self.include_mv_checkbox, 0, Qt.AlignmentFlag.AlignLeft)
         

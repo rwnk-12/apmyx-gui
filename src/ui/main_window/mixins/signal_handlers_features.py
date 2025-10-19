@@ -81,9 +81,6 @@ class SignalHandlersFeatures:
         self.controller.artwork_download_started.connect(lambda item_id: self._show_download_spinner(item_id))
         self.controller.artwork_download_finished.connect(self.on_artwork_download_finished)
 
-        self._on_quality_selection_changed(self.quality_selector.currentText())
-        
-       
         self.queue_is_paused = False
         self._paused_jobs = []
         self._cleanup_legacy_pause_file()

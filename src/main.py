@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import QApplication
 from PyQt6.QtGui import QFontDatabase, QFont, QIcon
 from core.app import AppController
 from ui.main_window import MainWindow
+from ui.main_window.dialogs import UpdateDialog 
 
 
 APP_FONT_FAMILY = "Inter Tight"
@@ -93,6 +94,11 @@ DARK_STYLESHEET = f"""
     }}
 """
 
+VERSION = "0.1.1"
+REPO_OWNER = "rwnk-12"
+REPO_NAME = "apmyx-gui"
+RELEASES_URL = f"https://github.com/{REPO_OWNER}/{REPO_NAME}/releases"
+
 def resource_path(relative_path):
     
     try:
@@ -107,19 +113,12 @@ def resource_path(relative_path):
 def setup_logging():
 
     log_formatter = logging.Formatter('[PYTHON] %(asctime)s - %(levelname)s - %(message)s')
-    
-
-    file_handler = logging.FileHandler("app.log", mode='w', encoding='utf-8')
-    file_handler.setFormatter(log_formatter)
-    
 
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setFormatter(log_formatter)
-    
 
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.INFO)
-    root_logger.addHandler(file_handler)
     root_logger.addHandler(console_handler)
 
     def handle_exception(exc_type, exc_value, exc_traceback):
@@ -210,9 +209,20 @@ if __name__ == "__main__":
   
     controller = AppController(storefront=storefront)
     
+    controller.VERSION = VERSION
+    controller.REPO_OWNER = REPO_OWNER
+    controller.REPO_NAME = REPO_NAME
+    controller.RELEASES_URL = RELEASES_URL
 
     window = MainWindow(controller)
     window.show()
     
+    def handle_update_check(latest, current, url):
+        if controller.is_newer_version(latest, current) and latest:
+            dialog = UpdateDialog(latest, current, url, window)
+            dialog.exec()
+
+    controller.updatecheckfinished.connect(handle_update_check)
+    controller.checkforupdates()
 
     sys.exit(app.exec())

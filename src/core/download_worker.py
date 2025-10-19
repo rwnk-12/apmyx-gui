@@ -95,8 +95,8 @@ class DownloadJobRunner(QRunnable):
 
     def _should_use_album_like_tracking(self):
         """Determine if this download should use album-like progress tracking"""
-        return (not self.is_single_song and 
-                (not self.is_playlist or self.is_user_playlist or self.backend_says_user_playlist))
+        # Enable for all multi-track items (albums, playlists); disable only for true singles/MVs
+        return not self.is_single_song and not (self.is_mv and self.total_tracks == 1)
 
     def _emit_progress(self, status_text, track_percent, overall_percent, force=False):
         """Stores progress data and emits it if throttling interval has passed or if forced."""

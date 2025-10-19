@@ -212,7 +212,6 @@ class SettingsPage(QWidget):
         'artist-folder-format': '{UrlArtistName}', 'explicit-choice': '[E]',
         'clean-choice': '[C]', 'apple-master-choice': '[M]',
         'use-songinfo-for-playlist': False, 'dl-albumcover-for-playlist': False,
-        'create-curator-folder': True,
         'mv-audio-type': 'atmos', 'mv-max': 2160, 'storefront': '',
         'tag-options': {
             'write-title': True, 'write-artist': True, 'write-artist-sort': False,
@@ -231,7 +230,7 @@ class SettingsPage(QWidget):
         'save-animated-artwork', 'emby-animated-artwork', 'embed-cover', 'cover-size',
         'cover-format', 'album-folder-format', 'playlist-folder-format', 'song-file-format',
         'artist-folder-format', 'explicit-choice', 'clean-choice', 'apple-master-choice',
-        'use-songinfo-for-playlist', 'dl-albumcover-for-playlist', 'create-curator-folder',
+        'use-songinfo-for-playlist', 'dl-albumcover-for-playlist',
         'mv-audio-type', 'mv-max'
     ]
 
@@ -245,8 +244,7 @@ class SettingsPage(QWidget):
             'artist-folder-format', 'explicit-choice', 'clean-choice', 'apple-master-choice'
         ],
         "Playlist Settings": [
-            'playlist-folder-format', 'use-songinfo-for-playlist', 'dl-albumcover-for-playlist',
-            'create-curator-folder'
+            'playlist-folder-format', 'use-songinfo-for-playlist', 'dl-albumcover-for-playlist'
         ],
         "Artwork": [
             'embed-cover', 'cover-size', 'cover-format', 'save-artist-cover',

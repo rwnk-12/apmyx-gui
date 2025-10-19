@@ -1,5 +1,5 @@
 import os
-from PyQt6.QtWidgets import QWidget, QFrame, QHBoxLayout, QPushButton, QSizePolicy, QComboBox
+from PyQt6.QtWidgets import QWidget, QFrame, QHBoxLayout, QPushButton, QSizePolicy, QComboBox, QButtonGroup
 from PyQt6.QtCore import pyqtSignal, QRect, QPropertyAnimation, QEasingCurve, QTimer, Qt, pyqtProperty, QPointF, QRectF, QSize, QEvent
 from PyQt6.QtGui import QColor, QPainter, QPainterPath, QFont, QLinearGradient, QPen, QFontMetrics, QTransform, QPalette
 
@@ -58,9 +58,11 @@ class SegmentedQualitySelector(QWidget):
         self.thumb.hide()
 
         self.buttons = []
+        self.button_group = QButtonGroup(self)
+        self.button_group.setExclusive(True)
         font = QFont()
         font.setPointSize(10)
-        for lbl in labels:
+        for i, lbl in enumerate(labels):
             b = QPushButton(lbl, self.bg)
             b.setCheckable(True)
             b.setFlat(True)
@@ -90,6 +92,7 @@ class SegmentedQualitySelector(QWidget):
             b.clicked.connect(lambda _, btn=b: self._on_clicked(btn))
             self.lay.addWidget(b, 0, Qt.AlignmentFlag.AlignLeft)
             self.buttons.append(b)
+            self.button_group.addButton(b, i)
 
         if self.buttons:
             self.buttons[0].setChecked(True)
@@ -138,16 +141,10 @@ class SegmentedQualitySelector(QWidget):
         return btn.text() if btn else ""
 
     def currentButton(self) -> QPushButton | None:
-        for b in self.buttons:
-            if b.isChecked():
-                return b
-        return None
+        checked_button = self.button_group.checkedButton()
+        return checked_button if isinstance(checked_button, QPushButton) else None
 
     def _on_clicked(self, btn: QPushButton):
-        for b in self.buttons:
-            if b is not btn:
-                b.setChecked(False)
-        btn.setChecked(True)
         self._move_thumb_to(btn, animate=True)
         self.selectionChanged.emit(btn.text())
 
@@ -175,19 +172,21 @@ class SegmentedQualitySelector(QWidget):
         return self.currentLabel()
 
     def currentIndex(self) -> int:
-        for i, b in enumerate(self.buttons):
-            if b.isChecked():
-                return i
-        return -1
+        return self.button_group.checkedId()
 
     def setCurrentIndex(self, i: int):
         if 0 <= i < len(self.buttons):
-            self._on_clicked(self.buttons[i])
+            btn = self.buttons[i]
+            if not btn.isChecked():
+                btn.setChecked(True)
+                self.selectionChanged.emit(btn.text())
+                if self.isVisible() and self.width() > 1:
+                    self._move_thumb_to(btn, animate=False)
 
     def setCurrentText(self, text: str):
-        for b in self.buttons:
+        for i, b in enumerate(self.buttons):
             if b.text() == text:
-                self._on_clicked(b)
+                self.setCurrentIndex(i)
                 break
 
 class AACQualitySelector(QComboBox):
@@ -216,17 +215,15 @@ class QueueToggleBar(QFrame):
         super().__init__(parent)
         self.setFixedWidth(36)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        # Keep a neutral base; we will paint our own background to blend when open
         self.setStyleSheet("background-color: transparent; border-left: none;")
         self.setAutoFillBackground(False)
         self._is_open = False
 
-        # Tunables
-        self._icon_size = 24      # logical px
-        self._icon_top  = 20      # moves chevron down
-        self._text_top  = 65      # moves label down 
+        self._icon_size = 24
+        self._icon_top  = 20
+        self._text_top  = 65
         self._pen_width = 3.0
-        self._openness  = 0.26    # 0.22 more open, 0.33 sharper
+        self._openness  = 0.26
 
     def set_open(self, is_open):
         if self._is_open != is_open:
@@ -238,7 +235,6 @@ class QueueToggleBar(QFrame):
         super().mousePressEvent(event)
 
     def changeEvent(self, e):
-        # Repaint if theme/palette changes to keep perfect blending
         if e.type() in (QEvent.Type.PaletteChange, QEvent.Type.ApplicationPaletteChange):
             self.update()
         super().changeEvent(e)
@@ -246,7 +242,7 @@ class QueueToggleBar(QFrame):
     def _separator_color(self):
         pal = self.window().palette()
         c = pal.color(QPalette.ColorRole.WindowText)
-        return QColor(c.red(), c.green(), c.blue(), 60)  # ~24% alpha for a subtle line
+        return QColor(c.red(), c.green(), c.blue(), 60)
 
     def paintEvent(self, event):
         p = QPainter(self)

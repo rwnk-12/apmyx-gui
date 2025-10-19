@@ -3,6 +3,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
+import webbrowser
 
 class StorefrontRequiredDialog(QDialog):
     def __init__(self, parent=None):
@@ -273,3 +274,88 @@ class WrapperErrorDialog(QDialog):
             e.ignore()
             return
         super().keyPressEvent(e)
+
+class UpdateDialog(QDialog):
+    def __init__(self, latest_version, current_version, release_url, parent=None):
+        super().__init__(parent)
+        self.latest_version = latest_version
+        self.current_version = current_version
+        self.release_url = release_url
+        self.setWindowTitle("Update Available")
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setModal(True)
+
+        self.bg_widget = QFrame(self)
+        self.bg_widget.setFixedWidth(420)
+        self.bg_widget.setStyleSheet("""
+            QFrame {
+                background-color: #2c2c2c;
+                border-radius: 12px;
+                border: 1px solid #444;
+            }
+            QLabel {
+                background-color: transparent;
+                border: none;
+            }
+            QLabel#Title { color: white; }
+            QLabel#Body  { color: #b0b0b0; }
+            QPushButton {
+                background-color: #4a4a4a;
+                border: 1px solid #555;
+                border-radius: 4px;
+                padding: 8px 16px;
+                color: #e0e0e0;
+                font-weight: bold;
+                min-width: 100px;
+            }
+            QPushButton:hover { background-color: #5a5a5a; }
+            QPushButton#Primary {
+                background-color: #d60117;
+                color: white;
+            }
+            QPushButton#Primary:hover { background-color: #e62237; }
+        """)
+
+        outer_layout = QVBoxLayout(self)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.addWidget(self.bg_widget)
+
+        layout = QVBoxLayout(self.bg_widget)
+        layout.setSpacing(16)
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        title = QLabel("Update Available")
+        title.setObjectName("Title")
+        title.setFont(QFont("Inter Tight", 14, QFont.Weight.Bold))
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title)
+
+        info_text = f"A new version <b>{self.latest_version}</b> is available!<br>Your version: <b>{self.current_version}</b><br><br>Visit the releases page to download the latest version."
+        info = QLabel(info_text)
+        info.setObjectName("Body")
+        info.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(10)
+
+        later_btn = QPushButton("Later")
+        later_btn.clicked.connect(self.reject)
+
+        open_btn = QPushButton("Open Releases")
+        open_btn.setObjectName("Primary")
+        open_btn.clicked.connect(self.open_releases)
+
+        btn_layout.addStretch()
+        btn_layout.addWidget(later_btn)
+        btn_layout.addWidget(open_btn)
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
+        
+        self.setFixedSize(self.sizeHint())
+
+    def open_releases(self):
+        webbrowser.open(self.release_url)
+        self.accept()

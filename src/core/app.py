@@ -151,6 +151,7 @@ class AppController(QObject):
     lyrics_download_started = pyqtSignal(str)
     artwork_download_started = pyqtSignal(str)
     artwork_download_finished = pyqtSignal(str, bool, str)
+    updatecheckfinished = pyqtSignal(str, str, str)
 
     CHROME_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/536"
 
@@ -175,6 +176,11 @@ class AppController(QObject):
         self.active_processes = []
         self.fetching_processes = {}
         self.process_lock = threading.Lock()
+        
+        self.VERSION = "0.0.0"
+        self.REPO_OWNER = ""
+        self.REPO_NAME = ""
+        self.RELEASES_URL = ""
         
         if not self.downloader_executable:
             self.update_status_and_log("FATAL: downloader executable not found!", 'error')
@@ -707,6 +713,41 @@ class AppController(QObject):
         worker.signals.category_search_results_loaded.connect(cleanup)
         self.thread_pool.start(worker)
 
+    def search_for_playlists(self, query: str):
+        self.update_status_and_log(f"Searching for playlists: '{query}'...")
+        worker = SearchWorker(self._search_for_playlists_worker, query)
+        worker.signals.category_search_results_loaded.connect(self.category_search_results_loaded)
+        worker.signals.status_updated.connect(self.update_status_and_log)
+        self.active_workers.append(worker)
+        
+        def cleanup(category, results):
+            if worker in self.active_workers:
+                self.active_workers.remove(worker)
+        
+        worker.signals.category_search_results_loaded.connect(cleanup)
+        self.thread_pool.start(worker)
+
+    def _search_for_playlists_worker(self, worker: SearchWorker, signals: SearchWorkerSignals, query: str):
+        try:
+            if worker.is_cancelled():
+                return
+            
+            api_results = self._search_api(query, "playlists", 30)
+            
+            if worker.is_cancelled():
+                return
+            
+            playlists_data = api_results.get('results', {}).get('playlists', {}).get('data', [])
+            all_playlists = [p for item in playlists_data if (p := self._parse_api_item(item))]
+            
+            worker.safe_emit(signals.category_search_results_loaded, 'playlists', all_playlists)
+            worker.safe_emit(signals.status_updated, "Playlist search complete.", "info")
+        
+        except (requests.RequestException, ValueError) as e:
+            self.search_failed.emit(str(e))
+            worker.safe_emit(signals.status_updated, f"API playlist search request failed: {e}", "error")
+            worker.safe_emit(signals.category_search_results_loaded, 'playlists', [])
+
     def search_for_artwork(self, query: str):
         self.update_status_and_log(f"Searching for artwork: '{query}'...")
         worker = SearchWorker(self._search_for_artwork_worker, query)
@@ -820,7 +861,8 @@ class AppController(QObject):
             'hasTimeSyncedLyrics': attrs.get('hasTimeSyncedLyrics', False),
             'isAppleDigitalMaster': attrs.get('isAppleDigitalMaster', False),
             'tracks_data': item.get('relationships', {}).get('tracks', {}).get('data', []),
-            'attributes': attrs
+            'attributes': attrs,
+            'curatorName': attrs.get('curatorName'),
         }
         
         for k in ['codec','bitrate','avgBitrate','sampleRateHz','bitDepth','channels']:
@@ -927,7 +969,7 @@ class AppController(QObject):
         try:
             if worker.is_cancelled(): return
 
-            api_results = self._search_api(query, "songs,albums,artists,music-videos", 30)
+            api_results = self._search_api(query, "songs,albums,artists,music-videos,playlists", 30)
             
             if worker.is_cancelled(): return
             
@@ -943,25 +985,27 @@ class AppController(QObject):
             videos_data = api_results.get('results', {}).get('music-videos', {}).get('data', [])
             all_videos = [p for item in videos_data if (p := self._parse_api_item(item))]
             
+            playlists_data = api_results.get('results', {}).get('playlists', {}).get('data', [])
+            all_playlists = [p for item in playlists_data if (p := self._parse_api_item(item))]
+            
             if worker.is_cancelled(): return
 
-            top_results_map = {}
-            top_items = [
-                item for item in [
+            top_results_map = {
+                **{item['id']: item for item in [
                     all_songs[0] if all_songs else None,
                     all_albums[0] if all_albums else None,
                     all_artists[0] if all_artists else None,
                     all_videos[0] if all_videos else None,
-                ] if item is not None and item.get('id')
-            ]
-            for item in top_items:
-                top_results_map[item['id']] = item
+                    all_playlists[0] if all_playlists else None,
+                ] if item is not None and item.get('id')}
+            }
             top_results = list(top_results_map.values())
 
             final_results = {
                 "top_results": top_results, "songs": all_songs,
                 "albums": all_albums, "artists": all_artists,
-                "music_videos": all_videos
+                "music_videos": all_videos,
+                "playlists": all_playlists
             }
 
             worker.safe_emit(signals.search_results_loaded, final_results)
@@ -1158,6 +1202,8 @@ class AppController(QObject):
 
     def download_artwork_worker(self, item_data: dict):
         try:
+            import yaml  
+            
             item_id = item_data.get('id')
             item_name = item_data.get('name', 'Unknown')
             artwork_url = item_data.get('artworkUrl', '')
@@ -1166,9 +1212,36 @@ class AppController(QObject):
                 raise ValueError("No artwork URL available")
             
             self.artwork_download_started.emit(item_id)
+
+
+            try:
+                with open('config.yaml', 'r', encoding='utf-8') as f:
+                    config_data = yaml.safe_load(f) or {}
+            except FileNotFoundError:
+                config_data = {}
+            cover_size = config_data.get('cover-size', '5000x5000')
+            try:
+                width, height = map(int, cover_size.split('x'))
+            except Exception:
+                width, height = 5000, 5000  
+
+            if '{w}' in artwork_url and '{h}' in artwork_url:
             
-            artwork_url = artwork_url.replace('{w}', '3000').replace('{h}', '3000')
-            
+                artwork_url = artwork_url.replace('{w}', str(width)).replace('{h}', str(height))
+            elif 'w=600' in artwork_url or 'h=600' in artwork_url:
+             
+                artwork_url = artwork_url.replace('w=600', f'w={width}').replace('h=600', f'h={height}')
+            elif 'w=' in artwork_url and 'h=' in artwork_url:
+             
+                import re
+                artwork_url = re.sub(r'w=\d+', f'w={width}', artwork_url)
+                artwork_url = re.sub(r'h=\d+', f'h={height}', artwork_url)
+            elif 'x' in artwork_url:
+             
+                import re
+                artwork_url = re.sub(r'/(\d{2,4})x(\d{2,4})', f'/{width}x{height}', artwork_url)
+          
+
             response = self.session.get(artwork_url, timeout=30)
             response.raise_for_status()
             
@@ -1413,3 +1486,33 @@ class AppController(QObject):
                 final_status = "Not Available"
             
             self.lyrics_download_finished.emit(local_filepath, False, final_status)
+
+    def checkforupdates(self):
+        worker = Worker(self._check_for_updates_worker)
+        self.thread_pool.start(worker)
+
+    def _check_for_updates_worker(self):
+        try:
+            api_url = f"https://api.github.com/repos/{self.REPO_OWNER}/{self.REPO_NAME}/releases/latest"
+            response = self.session.get(api_url, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                latest_version = data['tag_name'].lstrip('v')
+                release_url = data['html_url']
+                current_version = self.VERSION
+                self.updatecheckfinished.emit(latest_version, current_version, release_url)
+            else:
+                logging.warning(f"GitHub API failed for update check: {response.status_code}")
+                self.updatecheckfinished.emit("", self.VERSION, "")
+        except Exception as e:
+            logging.warning(f"Update check error: {e}")
+            self.updatecheckfinished.emit("", self.VERSION, "")
+
+    def is_newer_version(self, latest, current):
+        def parse_version(v):
+            try:
+                clean_v = (v or "0.0.0").split('-')[0]
+                return tuple(map(int, clean_v.split('.')))
+            except ValueError:
+                return (0, 0, 0)
+        return parse_version(latest) > parse_version(current)

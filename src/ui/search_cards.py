@@ -11,7 +11,6 @@ from .search_widgets import LoadingSpinner, ImageFetcher, MarqueeLabel, round_pi
 from enum import Enum
 
 def resource_path(relative_path):
-    """ Get absolute path to resource, works for dev and for PyInstaller """
     try:
         
         base_path = sys._MEIPASS
@@ -22,7 +21,6 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 def render_svg_tinted(svg_bytes: bytes, size: QSize, color: QColor) -> QPixmap:
-    """Renders an SVG to a pixmap and tints it with a specified color."""
     renderer = QSvgRenderer(svg_bytes)
     pm = QPixmap(size)
     pm.fill(Qt.GlobalColor.transparent)
@@ -46,10 +44,8 @@ HI_RES_TAG_ARTWORK_STYLESHEET = """
 """
 
 class SelectionOverlay(QWidget):
-    """A dedicated widget to draw the selection UI on top of the artwork."""
     def __init__(self, parent=None):
         super().__init__(parent)
-        # This makes sure mouse events pass through to the widget underneath
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
 
     def paintEvent(self, event):
@@ -58,13 +54,11 @@ class SelectionOverlay(QWidget):
         
         art_rect = self.rect()
 
-        # Draw selection ring
         ring_pen = QPen(QColor("#fd576b"), 2)
         painter.setPen(ring_pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRoundedRect(art_rect.adjusted(1, 1, -1, -1), 12, 12)
 
-        # Draw checkmark
         check_bg_rect = QRect(art_rect.right() - 22, art_rect.y() + 6, 16, 16)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QColor("#fd576b"))
@@ -205,21 +199,17 @@ class InfoIconButton(QPushButton):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
 
-        # Background circle
         bg = QColor("#f5596d") if self._is_hovering else QColor(0, 0, 0, 200)
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(bg)
         p.drawEllipse(self.rect())
 
-        # Icon area 
         margin = w * 0.25
         icon_size = w - (2 * margin)
         icon_rect = QRectF(margin, margin, icon_size, icon_size)
         
-        # Ring thickness proportional to icon size
         ring_thickness = icon_size * 0.12
         
-        # Outer ring
         ring_pen = QPen(Qt.GlobalColor.white, ring_thickness)
         ring_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         p.setPen(ring_pen)
@@ -589,9 +579,15 @@ class SearchResultCard(QWidget):
         
         title_line_layout.addStretch()
 
-        bottom_text = self.result_data.get('artist', '')
-        if item_type == 'artists': bottom_text = "Artist"
-        if item_type == 'music-videos': bottom_text = self.result_data.get('artist', '') + " • Music Video"
+        if item_type == 'playlists':
+            bottom_text = self.result_data.get('curatorName', 'Playlist')
+        elif item_type == 'artists':
+            bottom_text = 'Artist'
+        elif item_type == 'music-videos':
+            bottom_text = self.result_data.get('artist', 'Music Video')
+        else:
+            bottom_text = self.result_data.get('artist', '')
+
         self.artist_label = MarqueeLabel(bottom_text)
         self.artist_label.setStyleSheet("color: #aaa;")
 
@@ -772,27 +768,22 @@ class SearchResultCard(QWidget):
         self.artwork_label.setText("Load Error")
 
     def mousePressEvent(self, event: QMouseEvent):
-        # Let the base class handle context menu events (right-click)
         if event.button() != Qt.MouseButton.LeftButton:
             super().mousePressEvent(event)
             return
 
-        # Artist cards still navigate directly on left-click
         if self.result_data.get('type') == 'artists':
             self.clicked.emit(self)
             super().mousePressEvent(event)
             return
 
-        # Check if the click is on any of the visible buttons within the artwork container
         if self.artwork_container.underMouse():
             local_pos = self.artwork_container.mapFrom(self, event.pos())
             for btn in [self.download_button, self.tracklist_button, self.info_button, self.video_preview_button]:
                 if btn.isVisible() and btn.geometry().contains(local_pos):
-                    # Let the button's own click handler work
                     super().mousePressEvent(event)
                     return
 
-        # If not on a button, toggle selection on left-click
         self.setSelected(not self.isSelected())
 
 class LoadingTile(QWidget):
@@ -911,26 +902,21 @@ class BaseListCard(QWidget):
         if self._is_selected != selected:
             self._is_selected = selected
             self.main_container.setProperty("selected", selected)
-            # Force style re-evaluation
             self.style().unpolish(self.main_container)
             self.style().polish(self.main_container)
             self.main_container.update()
             self.selection_toggled.emit(self.result_data, selected)
 
     def mousePressEvent(self, event: QMouseEvent):
-        # Let the base class handle context menu events (right-click)
         if event.button() != Qt.MouseButton.LeftButton:
             super().mousePressEvent(event)
             return
 
-        # Check if click is on a button
         for button in self.findChildren(QPushButton):
             if button.geometry().contains(self.main_container.mapFrom(self, event.pos())):
-                # Let the button handle it
                 super().mousePressEvent(event)
                 return
         
-        # If not on a button, toggle selection on left-click
         self.setSelected(not self.isSelected())
 
 class SongListCard(BaseListCard):
@@ -947,12 +933,10 @@ class SongListCard(BaseListCard):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.main_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
-        # Get the info layout created by the base class
         info_layout = self.main_container.layout().itemAt(1).layout()
         info_layout.setSpacing(0)
         info_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Safely clear the old widgets from the layout
         while info_layout.count():
             item = info_layout.takeAt(0)
             widget = item.widget()
@@ -965,7 +949,6 @@ class SongListCard(BaseListCard):
                     if nested_item.widget():
                         nested_item.widget().deleteLater()
 
-        # Create new MarqueeLabels
         self.title_label = MarqueeLabel(self.result_data.get('name', 'Unknown Title'))
         
         artist = self.result_data.get('artist', '')
@@ -977,13 +960,11 @@ class SongListCard(BaseListCard):
         self.title_label.setStyleSheet(f"font-size: 10pt; font-weight: {font_weight}; background-color: transparent; padding: 0px; margin: 0px;")
         self.details_label.setStyleSheet("color: #aaa; font-size: 8pt; font-style: italic; background-color: transparent; padding: 0px; margin: 0px;")
 
-        # Set fixed height based on font metrics to prevent layout spacing issues
         fm_title = QFontMetrics(self.title_label.font())
         self.title_label.setFixedHeight(fm_title.height())
         fm_details = QFontMetrics(self.details_label.font())
         self.details_label.setFixedHeight(fm_details.height())
 
-        # Create the title line with explicit/hi-res tags
         title_line_layout = QHBoxLayout()
         title_line_layout.setSpacing(4)
         title_line_layout.setContentsMargins(0, 0, 0, 0)
@@ -1033,11 +1014,9 @@ class SongListCard(BaseListCard):
         
         title_line_layout.addStretch()
 
-        # Add new widgets back to the layout
         info_layout.addLayout(title_line_layout)
         info_layout.addWidget(self.details_label)
         
-        # Install event filter for hover animations
         self.main_container.installEventFilter(self)
 
         self.action_spinner = LoadingSpinner(self.main_container)
@@ -1471,7 +1450,6 @@ class TrackItemWidget(QWidget):
             return
 
         if hasattr(self, 'play_button') and self.play_button.geometry().contains(event.pos()):
-            # Let the button handle its own click
             super().mousePressEvent(event)
             return
         self.setSelected(not self.isSelected())

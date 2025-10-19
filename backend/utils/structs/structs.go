@@ -37,7 +37,6 @@ type ConfigSet struct {
 	LimitMax                int    `yaml:"limit-max" json:"limit-max"`
 	UseSongInfoForPlaylist  bool   `yaml:"use-songinfo-for-playlist" json:"use-songinfo-for-playlist"`
 	DlAlbumcoverForPlaylist bool   `yaml:"dl-albumcover-for-playlist" json:"dl-albumcover-for-playlist"`
-	CreateCuratorFolder     bool   `yaml:"create-curator-folder" json:"create-curator-folder"`
 	MVAudioType             string `yaml:"mv-audio-type" json:"mv-audio-type"`
 	MVMax                   int    `yaml:"mv-max" json:"mv-max"`
 	TagOptions              struct {

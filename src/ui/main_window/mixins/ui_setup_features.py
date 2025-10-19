@@ -163,6 +163,10 @@ class UiSetupFeatures:
             self._current_page_with_menu_signal = None
 
     def open_settings_page(self):
+        self.home_button.setStyleSheet(self.sidebar_button_style)
+        self.artwork_button.setStyleSheet(self.sidebar_button_style)
+        self.lyrics_button.setStyleSheet(self.sidebar_button_style)
+        self.settings_button_sidebar.setStyleSheet(self.selected_button_style)
         try:
             self.page_stack.setCurrentWidget(self.settings_page)
         except RuntimeError:
@@ -171,6 +175,10 @@ class UiSetupFeatures:
             self.page_stack.setCurrentWidget(self.settings_page)
 
     def open_artwork_downloader_page(self):
+        self.home_button.setStyleSheet(self.sidebar_button_style)
+        self.settings_button_sidebar.setStyleSheet(self.sidebar_button_style)
+        self.lyrics_button.setStyleSheet(self.sidebar_button_style)
+        self.artwork_button.setStyleSheet(self.selected_button_style)
         try:
             self.page_stack.setCurrentWidget(self.artwork_page)
         except RuntimeError:
@@ -179,6 +187,10 @@ class UiSetupFeatures:
             self.page_stack.setCurrentWidget(self.artwork_page)
 
     def open_lyrics_downloader_page(self):
+        self.home_button.setStyleSheet(self.sidebar_button_style)
+        self.settings_button_sidebar.setStyleSheet(self.sidebar_button_style)
+        self.artwork_button.setStyleSheet(self.sidebar_button_style)
+        self.lyrics_button.setStyleSheet(self.selected_button_style)
         try:
             self.page_stack.setCurrentWidget(self.lyrics_page)
         except RuntimeError:
@@ -210,7 +222,7 @@ class UiSetupFeatures:
             )
             logo_label.setPixmap(scaled_pixmap)
             logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            logo_label.setStyleSheet("background-color: transparent; margin-top: -8px; padding-bottom: 3px;")
+            logo_label.setStyleSheet("background-color: transparent; margin-top: 3px; padding-bottom: 3px;")
             logo_label.setMaximumHeight(60)
             logo_label.setScaledContents(False)
         else:
@@ -233,15 +245,15 @@ class UiSetupFeatures:
         svg_lyrics = """<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-mic-vocal-icon lucide-mic-vocal"><path d="m11 7.601-5.994 8.19a1 1 0 0 0 .1 1.298l.817.818a1 1 0 0 0 1.314.087L15.09 12"/><path d="M16.5 21.174C15.5 20.5 14.372 20 13 20c-2.058 0-3.928 2.356-6 2-2.072-.356-2.775-3.369-1.5-4.5"/><circle cx="16" cy="7" r="5"/></svg>"""
         icon_size = 20
 
-        sidebar_button_style = """
+        self.sidebar_button_style = """
             QPushButton {
                 border: none;
                 background-color: transparent;
                 color: #e0e0e0;
                 text-align: left;
                 padding: 8px;
-                font-size: 11pt;
-                font-weight: 600;
+                font-size: 10.8pt;
+                font-weight: 500;
                 border-radius: 5px;
             }
             QPushButton:hover {
@@ -249,33 +261,49 @@ class UiSetupFeatures:
             }
         """
 
+        self.selected_button_style = """
+            QPushButton {
+                border: none;
+                background-color: rgba(60, 60, 60, 0.9);
+                color: rgba(255, 255, 255, 1);
+                text-align: left;
+                padding: 8px;
+                font-size: 10.9pt;
+                font-weight: 500;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: rgba(70, 70, 70, 0.9);
+            }
+        """
+
         self.home_button = QPushButton("   Home")
         self.home_button.setIcon(render_svg_icon(svg_home, icon_color, icon_size))
         self.home_button.setIconSize(QSize(icon_size, icon_size))
-        self.home_button.setStyleSheet(sidebar_button_style)
+        self.home_button.setStyleSheet(self.sidebar_button_style)
         self.home_button.clicked.connect(self._on_home_clicked)
         sidebar_layout.addWidget(self.home_button)
 
-        settings_button = QPushButton("   Settings")
-        settings_button.setIcon(render_svg_icon(svg_settings, icon_color, icon_size))
-        settings_button.setIconSize(QSize(icon_size, icon_size))
-        settings_button.clicked.connect(self.open_settings_page)
-        settings_button.setStyleSheet(sidebar_button_style)
-        sidebar_layout.addWidget(settings_button)
+        self.settings_button_sidebar = QPushButton("   Settings")
+        self.settings_button_sidebar.setIcon(render_svg_icon(svg_settings, icon_color, icon_size))
+        self.settings_button_sidebar.setIconSize(QSize(icon_size, icon_size))
+        self.settings_button_sidebar.clicked.connect(self.open_settings_page)
+        self.settings_button_sidebar.setStyleSheet(self.sidebar_button_style)
+        sidebar_layout.addWidget(self.settings_button_sidebar)
 
-        artwork_button = QPushButton("   Artwork Downloader")
-        artwork_button.setIcon(render_svg_icon(svg_artwork, icon_color, icon_size))
-        artwork_button.setIconSize(QSize(icon_size, icon_size))
-        artwork_button.clicked.connect(self.open_artwork_downloader_page)
-        artwork_button.setStyleSheet(sidebar_button_style)
-        sidebar_layout.addWidget(artwork_button)
+        self.artwork_button = QPushButton("   Artwork Downloader")
+        self.artwork_button.setIcon(render_svg_icon(svg_artwork, icon_color, icon_size))
+        self.artwork_button.setIconSize(QSize(icon_size, icon_size))
+        self.artwork_button.clicked.connect(self.open_artwork_downloader_page)
+        self.artwork_button.setStyleSheet(self.sidebar_button_style)
+        sidebar_layout.addWidget(self.artwork_button)
 
-        lyrics_button = QPushButton("   Lyrics Downloader")
-        lyrics_button.setIcon(render_svg_icon(svg_lyrics, icon_color, icon_size))
-        lyrics_button.setIconSize(QSize(icon_size, icon_size))
-        lyrics_button.clicked.connect(self.open_lyrics_downloader_page)
-        lyrics_button.setStyleSheet(sidebar_button_style)
-        sidebar_layout.addWidget(lyrics_button)
+        self.lyrics_button = QPushButton("   Lyrics Downloader")
+        self.lyrics_button.setIcon(render_svg_icon(svg_lyrics, icon_color, icon_size))
+        self.lyrics_button.setIconSize(QSize(icon_size, icon_size))
+        self.lyrics_button.clicked.connect(self.open_lyrics_downloader_page)
+        self.lyrics_button.setStyleSheet(self.sidebar_button_style)
+        sidebar_layout.addWidget(self.lyrics_button)
 
         sidebar_layout.addSpacing(20)
         
@@ -286,13 +314,18 @@ class UiSetupFeatures:
         github_button.setIcon(render_svg_icon(svg_github, icon_color, github_icon_size))
         github_button.setIconSize(QSize(github_icon_size, github_icon_size))
         github_button.clicked.connect(lambda: webbrowser.open("https://github.com/rwnk-12/apmyx-gui"))
-        github_button.setStyleSheet(sidebar_button_style)
+        github_button.setStyleSheet(self.sidebar_button_style)
         sidebar_layout.addWidget(github_button)
 
         sidebar_layout.addStretch()
 
     def _on_home_clicked(self):
         try:
+            self.settings_button_sidebar.setStyleSheet(self.sidebar_button_style)
+            self.artwork_button.setStyleSheet(self.sidebar_button_style)
+            self.lyrics_button.setStyleSheet(self.sidebar_button_style)
+            self.home_button.setStyleSheet(self.selected_button_style)
+
             current_widget = self.page_stack.currentWidget()
             search_page = getattr(self, "search_results_page", None)
 
@@ -331,6 +364,7 @@ class UiSetupFeatures:
         self._create_results_tab("Albums")
         self._create_results_tab("Artists")
         self._create_results_tab("Music Videos")
+        self._create_results_tab("Playlists")
 
         self._update_view_toggle_button()
 
@@ -338,10 +372,10 @@ class UiSetupFeatures:
         controls_layout = QHBoxLayout(self.controls_widget)
         controls_layout.setContentsMargins(0, 5, 0, 5)
         
-        quality_label = QLabel("<b>Choose download quality</b>")
+        quality_label = QLabel("<b>Quality:</b>")
         controls_layout.addWidget(quality_label)
 
-        self.quality_selector = SegmentedQualitySelector(("Dolby Atmos", "ALAC", "AAC"), accent="#B03400", parent=self.controls_widget)
+        self.quality_selector = SegmentedQualitySelector(("Atmos", "ALAC", "AAC"), accent="#B03400", parent=self.controls_widget)
         controls_layout.addWidget(self.quality_selector, 0, Qt.AlignmentFlag.AlignLeft)
 
         self.aac_quality_selector = AACQualitySelector(self.controls_widget)
