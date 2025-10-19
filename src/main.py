@@ -94,7 +94,7 @@ DARK_STYLESHEET = f"""
     }}
 """
 
-VERSION = "0.1.1"
+VERSION = "0.2.0"
 REPO_OWNER = "rwnk-12"
 REPO_NAME = "apmyx-gui"
 RELEASES_URL = f"https://github.com/{REPO_OWNER}/{REPO_NAME}/releases"
