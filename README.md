@@ -120,7 +120,7 @@ You need these tools installed on your computer for apmyx to work properly.
 
 ## Wrapper Installation (Windows)
 
-The wrapper is only needed if you want to download these high quality formats:
+The wrapper is only needed if you want to download these formats:
 * ALAC (Apple Lossless)
 * Atmos
 * AAC Binaural
