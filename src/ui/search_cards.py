@@ -451,6 +451,7 @@ class SearchResultCard(QWidget):
     lyrics_download_requested = pyqtSignal(dict)
     artwork_download_requested = pyqtSignal(dict)
     copy_link_requested = pyqtSignal(dict)
+    play_requested = pyqtSignal(dict)
 
     def __init__(self, result_data: dict, parent=None):
         super().__init__(parent)
@@ -516,6 +517,8 @@ class SearchResultCard(QWidget):
         self.video_preview_button = PlayButton(self.artwork_container)
         self.video_preview_button.setFixedSize(32, 32)
         self.video_preview_button.setToolTip("Play Video Preview")
+        self.play_button = PlayButton(self.artwork_container)
+        self.play_button.setFixedSize(32, 32)
         
         self.action_spinner = LoadingSpinner(self.artwork_container)
         self.action_spinner.hide()
@@ -526,6 +529,7 @@ class SearchResultCard(QWidget):
         if item_type == 'songs':
             self.info_button.move(5, artwork_width - self.info_button.height() - 10)
             self.download_button.move(artwork_width - self.download_button.width() - 5, artwork_width - self.download_button.height() - 10)
+            self.play_button.move(artwork_width - self.download_button.width() - self.play_button.width() - 10, artwork_width - self.download_button.height() - 10)
         elif item_type == 'music-videos':
             self.info_button.move(5, artwork_width - self.info_button.height() - 10)
             self.download_button.move(artwork_width - self.download_button.width() - self.video_preview_button.width() - 10, artwork_width - self.download_button.height() - 10)
@@ -539,11 +543,13 @@ class SearchResultCard(QWidget):
         self.tracklist_button.clicked.connect(self.on_tracklist_button_clicked)
         self.info_button.clicked.connect(self.on_info_button_clicked)
         self.video_preview_button.clicked.connect(self.on_video_preview_button_clicked)
+        self.play_button.clicked.connect(self.on_play_button_clicked)
         
         self.download_button.hide()
         self.tracklist_button.hide()
         self.info_button.hide()
         self.video_preview_button.hide()
+        self.play_button.hide()
         
         if item_type in ['albums', 'playlists', 'songs', 'music-videos']:
             self.artwork_container.installEventFilter(self)
@@ -584,7 +590,7 @@ class SearchResultCard(QWidget):
         elif item_type == 'artists':
             bottom_text = 'Artist'
         elif item_type == 'music-videos':
-            bottom_text = self.result_data.get('artist', 'Music Video')
+            bottom_text = f"{self.result_data.get('artist', 'Music Video')} • Music Video"
         else:
             bottom_text = self.result_data.get('artist', '')
 
@@ -675,6 +681,9 @@ class SearchResultCard(QWidget):
                 if item_type == 'music-videos':
                     self.video_preview_button.show()
                     self.download_button.show()
+                elif item_type == 'songs':
+                    self.play_button.show()
+                    self.download_button.show()
                 else:
                     self.download_button.show()
                 if item_type in ['albums', 'playlists']:
@@ -685,6 +694,7 @@ class SearchResultCard(QWidget):
                 self.tracklist_button.hide()
                 self.info_button.hide()
                 self.video_preview_button.hide()
+                self.play_button.hide()
         return super().eventFilter(source, event)
 
     def _set_active_button(self, btn: QPushButton):
@@ -709,6 +719,10 @@ class SearchResultCard(QWidget):
     def on_video_preview_button_clicked(self):
         self._set_active_button(self.video_preview_button)
         self.video_preview_requested.emit(self)
+
+    def on_play_button_clicked(self):
+        self._set_active_button(self.play_button)
+        self.play_requested.emit(self.result_data)
 
     def start_action(self):
         if self.active_button:
@@ -779,7 +793,7 @@ class SearchResultCard(QWidget):
 
         if self.artwork_container.underMouse():
             local_pos = self.artwork_container.mapFrom(self, event.pos())
-            for btn in [self.download_button, self.tracklist_button, self.info_button, self.video_preview_button]:
+            for btn in [self.download_button, self.tracklist_button, self.info_button, self.video_preview_button, self.play_button]:
                 if btn.isVisible() and btn.geometry().contains(local_pos):
                     super().mousePressEvent(event)
                     return
@@ -952,13 +966,12 @@ class SongListCard(BaseListCard):
         self.title_label = MarqueeLabel(self.result_data.get('name', 'Unknown Title'))
         
         artist = self.result_data.get('artist', '')
-        album = self.result_data.get('albumName', '')
-        details_text = f"{artist} • {album}" if artist and album else artist or album
+        details_text = artist
         self.details_label = MarqueeLabel(details_text)
 
         font_weight = "600"
         self.title_label.setStyleSheet(f"font-size: 10pt; font-weight: {font_weight}; background-color: transparent; padding: 0px; margin: 0px;")
-        self.details_label.setStyleSheet("color: #aaa; font-size: 8pt; font-style: italic; background-color: transparent; padding: 0px; margin: 0px;")
+        self.details_label.setStyleSheet("color: #aaa; font-size: 8pt; font-weight: 600; background-color: transparent; padding: 0px; margin: 0px;")
 
         fm_title = QFontMetrics(self.title_label.font())
         self.title_label.setFixedHeight(fm_title.height())
@@ -1280,7 +1293,7 @@ class SongTableCard(QWidget):
         outer_layout = QVBoxLayout(self)
         outer_layout.setContentsMargins(0,0,0,0)
         outer_layout.addWidget(self.main_container)
-        self.setFixedHeight(60)
+        self.setFixedHeight(38)
 
         self._fetch_artwork()
 

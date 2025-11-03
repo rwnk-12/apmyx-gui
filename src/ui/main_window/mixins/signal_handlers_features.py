@@ -347,6 +347,7 @@ class SignalHandlersFeatures:
             artist_page.download_requested.connect(self.on_artist_page_download_requested)
             artist_page.tracklist_requested.connect(self.on_tracklist_requested)
             artist_page.info_requested.connect(self.on_info_requested)
+            artist_page.video_preview_requested.connect(self.on_video_preview_requested)
             self.discography_batch_progress.connect(artist_page.on_discography_batch_progress)
             self.discography_batch_finished.connect(artist_page.on_discography_batch_finished)
             self.page_stack.addWidget(artist_page)
@@ -495,7 +496,7 @@ class SignalHandlersFeatures:
             self.statusBar().showMessage("No link available", 2000)
             return
         
-        clipboard = QApplication.clipboard()
+        clipboard = QApplication.instance().clipboard()
         clipboard.setText(link)
         self.statusBar().showMessage("Link copied to clipboard!", 2000)
 

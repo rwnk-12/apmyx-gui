@@ -8,7 +8,7 @@ import re
 import webbrowser
 from typing import Dict, Any, List
 
-from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot, QObject, QRunnable, QThreadPool, QEvent, QPropertyAnimation, QEasingCurve, QTimer
+from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot, QObject, QRunnable, QThreadPool, QEvent, QPropertyAnimation, QEasingCurve, QTimer, pyqtProperty, QRectF
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QScrollArea, QFrame, QPushButton,
     QFormLayout, QLineEdit, QComboBox, QFileDialog, QSizePolicy, QSpacerItem,
@@ -17,15 +17,78 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QIntValidator, QAction, QPainter, QColor, QPen, QFont
 
-from .search_widgets import CustomCheckBox
 from .search_cards import SettingsButton
 
 
 ACCENT = "#fd576b"
 
 
+class ToggleSwitch(QWidget):
+    stateChanged = pyqtSignal(bool)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(32, 22)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._checked = False
+        self._thumb_pos = 2.0
+
+        self.animation = QPropertyAnimation(self, b"thumb_pos", self)
+        self.animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.animation.setDuration(150)
+
+    def isChecked(self):
+        return self._checked
+
+    def setChecked(self, checked):
+        if self._checked == checked:
+            return
+        self._checked = checked
+        self.animation.setStartValue(self.thumb_pos)
+        self.animation.setEndValue(12.0 if self._checked else 2.0)
+        self.animation.start()
+        self.stateChanged.emit(self._checked)
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setPen(Qt.PenStyle.NoPen)
+
+        thumb_size = 18.0
+        track_height = 12.0
+        v_margin = (self.height() - track_height) / 2
+
+        if self.isChecked():
+            track_color = QColor("#5D0011")
+            thumb_color = QColor("#FF3B30")
+        else:
+            track_color = QColor("#555555")
+            thumb_color = QColor("#E0E0E0")
+
+        track_rect = self.rect().adjusted(1, int(v_margin), -1, -int(v_margin))
+        p.setBrush(track_color)
+        p.drawRoundedRect(track_rect, track_rect.height() / 2, track_rect.height() / 2)
+
+        p.setBrush(thumb_color)
+        thumb_y = (self.height() - thumb_size) / 2
+        thumb_rect = QRectF(self._thumb_pos, thumb_y, thumb_size, thumb_size)
+        p.drawEllipse(thumb_rect)
+
+    def mousePressEvent(self, event):
+        self.setChecked(not self.isChecked())
+        super().mousePressEvent(event)
+
+    @pyqtProperty(float)
+    def thumb_pos(self):
+        return self._thumb_pos
+
+    @thumb_pos.setter
+    def thumb_pos(self, value):
+        self._thumb_pos = value
+        self.update()
+
+
 class InfoButton(QPushButton):
-    """A small, circular 'i' button to show informational popups."""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFixedSize(18, 18)
@@ -55,7 +118,6 @@ class InfoButton(QPushButton):
         painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "i")
 
 class InfoPopup(QDialog):
-    """A compact, custom-styled dialog for showing help text."""
     def __init__(self, title: str, message: str, parent=None):
         super().__init__(parent)
         self.setObjectName("InfoPopup")
@@ -92,7 +154,6 @@ class InfoPopup(QDialog):
         content_layout.setContentsMargins(20, 20, 20, 20)
         content_layout.setSpacing(12)
 
-        # Title
         title_label = QLabel(title)
         title_font = QFont()
         title_font.setPointSize(14)
@@ -101,7 +162,6 @@ class InfoPopup(QDialog):
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         content_layout.addWidget(title_label)
 
-        # Message
         message_label = QLabel(message)
         message_font = QFont()
         message_font.setPointSize(10)
@@ -121,7 +181,6 @@ class InfoPopup(QDialog):
         
         content_layout.addSpacing(15)
 
-       
         ok_button = QPushButton("OK")
         ok_button.setCursor(Qt.CursorShape.PointingHandCursor)
         ok_button.setFixedHeight(34)
@@ -199,7 +258,7 @@ class SettingsPage(QWidget):
     DEFAULTS: Dict[str, Any] = {
         'media-user-token': "", 'authorization-token': '', 'language': '',
         'lrc-type': 'lyrics', 'lrc-format': 'lrc', 'embed-lrc': True,
-        'save-lrc-file': True, 'save-artist-cover': False, 'save-animated-artwork': False,
+        'save-lrc-file': False, 'save-artist-cover': False, 'save-animated-artwork': False,
         'emby-animated-artwork': False, 'embed-cover': True, 'cover-size': '5000x5000',
         'cover-format': 'jpg', 'alac-save-folder': 'AM-DL downloads',
         'atmos-save-folder': 'AM-DL-Atmos downloads', 'aac-save-folder': 'AM-DL-AAC downloads',
@@ -211,17 +270,10 @@ class SettingsPage(QWidget):
         'playlist-folder-format': '{PlaylistName}', 'song-file-format': '{SongNumber}. {SongName}',
         'artist-folder-format': '{UrlArtistName}', 'explicit-choice': '[E]',
         'clean-choice': '[C]', 'apple-master-choice': '[M]',
-        'use-songinfo-for-playlist': False, 'dl-albumcover-for-playlist': False,
-        'mv-audio-type': 'atmos', 'mv-max': 2160, 'storefront': '',
-        'tag-options': {
-            'write-title': True, 'write-artist': True, 'write-artist-sort': False,
-            'write-album': True, 'write-album-sort': False, 'write-album-artist': True,
-            'write-album-artist-sort': False, 'write-composer': True, 'write-composer-sort': False,
-            'write-genre': True, 'write-isrc': True, 'write-upc': True, 'write-date': True,
-            'write-copyright': True, 'write-publisher': True, 'write-disc-track': True,
-            'write-lyrics': True, 'write-cover': True, 'delete-sort-on-write': True,
-            'use-mp4box-artist': False
-        }
+        'use-songinfo-for-playlist': True, 'dl-albumcover-for-playlist': True,
+        'use-song-metadata-for-playlist-numbering': False,
+        'mv-audio-type': 'atmos', 'mv-max': 2160, 'storefront': '', 'preferred-quality': 'AAC',
+        'mv-file-format': '{ArtistName} - {VideoName}'
     }
 
     PARTIAL_RESET_KEYS: List[str] = [
@@ -231,7 +283,8 @@ class SettingsPage(QWidget):
         'cover-format', 'album-folder-format', 'playlist-folder-format', 'song-file-format',
         'artist-folder-format', 'explicit-choice', 'clean-choice', 'apple-master-choice',
         'use-songinfo-for-playlist', 'dl-albumcover-for-playlist',
-        'mv-audio-type', 'mv-max'
+        'use-song-metadata-for-playlist-numbering',
+        'mv-audio-type', 'mv-max', 'mv-file-format'
     ]
 
     CATEGORIES = {
@@ -240,33 +293,25 @@ class SettingsPage(QWidget):
             'alac-save-folder', 'atmos-save-folder', 'aac-save-folder', 'mv-save-folder'
         ],
         "Naming Formats": [
-            'album-folder-format', 'song-file-format',
+            'song-file-format', 'mv-file-format', 'album-folder-format', 'playlist-folder-format', 
             'artist-folder-format', 'explicit-choice', 'clean-choice', 'apple-master-choice'
         ],
         "Playlist Settings": [
-            'playlist-folder-format', 'use-songinfo-for-playlist', 'dl-albumcover-for-playlist'
+            'use-songinfo-for-playlist', 'dl-albumcover-for-playlist',
+            'use-song-metadata-for-playlist-numbering'
         ],
         "Artwork": [
-            'embed-cover', 'cover-size', 'cover-format', 'save-artist-cover',
+            'cover-size', 'cover-format', 'embed-cover', 'save-artist-cover',
             'save-animated-artwork', 'emby-animated-artwork'
         ],
         "Lyrics": [
-            'embed-lrc', 'save-lrc-file', 'lrc-type', 'lrc-format'
+            'lrc-type', 'lrc-format', 'embed-lrc', 'save-lrc-file'
         ],
         "Audio Quality": [
             'get-m3u8-mode', 'aac-type', 'alac-max', 'atmos-max'
         ],
         "Music Video Settings": [
             'mv-audio-type', 'mv-max'
-        ],
-        "Metadata Tagging": [
-            'tag-options.write-title', 'tag-options.write-artist', 'tag-options.write-artist-sort',
-            'tag-options.write-album', 'tag-options.write-album-sort', 'tag-options.write-album-artist',
-            'tag-options.write-album-artist-sort', 'tag-options.write-composer', 'tag-options.write-composer-sort',
-            'tag-options.write-genre', 'tag-options.write-isrc', 'tag-options.write-upc', 'tag-options.write-date',
-            'tag-options.write-copyright', 'tag-options.write-publisher', 'tag-options.write-disc-track',
-            'tag-options.write-lyrics', 'tag-options.write-cover', 'tag-options.delete-sort-on-write',
-            'tag-options.use-mp4box-artist'
         ],
         "Advanced": [
             'max-memory-limit', 'limit-max', 'decrypt-m3u8-port', 'get-m3u8-port', 'get-m3u8-from-device'
@@ -280,32 +325,41 @@ class SettingsPage(QWidget):
         "Audio Quality",
         "Artwork",
         "Lyrics",
-        "Metadata Tagging",
         "Playlist Settings",
         "Music Video Settings",
         "Advanced",
     ]
 
     OPTIONS = {
-        'aac-type': ['aac-lc', 'aac', 'aac-binaural', 'aac-downmix'],
+        'aac-type': ['AAC-LC', 'AAC', 'AAC-Binaural', 'AAC-Downmix'],
         'cover-format': ['jpg', 'png', 'original'],
         'alac-max': ['192000', '96000', '48000', '44100'],
         'atmos-max': ['2768', '2448'],
         'lrc-type': ['lyrics', 'syllable-lyrics'],
-        'lrc-format': ['lrc', 'ttml'],
-        'mv-audio-type': ['atmos', 'ac3', 'aac'],
+        'lrc-format': ['LRC', 'TTML'],
+        'mv-audio-type': ['Atmos', 'AC3', 'AAC'],
         'mv-max': ['2160', '1080', '720', '480']
     }
 
     PLACEHOLDERS = {
         'album-folder-format': ['{AlbumId}', '{AlbumName}', '{ArtistName}', '{ReleaseDate}', '{ReleaseYear}', '{UPC}', '{Copyright}', '{Quality}', '{Codec}', '{Tag}', '{RecordLabel}'],
         'playlist-folder-format': ['{PlaylistId}', '{PlaylistName}', '{ArtistName}', '{Quality}', '{Codec}', '{Tag}'],
-        'song-file-format': ['{SongId}', '{SongNumber}', '{SongName}', '{DiscNumber}', '{TrackNumber}', '{Quality}', '{Codec}', '{Tag}'],
-        'artist-folder-format': ['{ArtistId}', '{ArtistName}', '{UrlArtistName}']
+        'song-file-format': ['{SongId}', '{SongNumber}', '{SongName}', '{DiscNumber}', '{TrackNumber}', '{Quality}', '{Codec}', '{Tag}', '{ArtistName}'],
+        'artist-folder-format': ['{ArtistId}', '{ArtistName}', '{UrlArtistName}'],
+        'mv-file-format': ['{VideoName}', '{ArtistName}', '{VideoID}', '{ReleaseDate}', '{ReleaseYear}']
     }
 
     HELP_TEXT = {
         'storefront': {'tip': "Your 2-letter Apple Music region code (e.g., 'us', 'gb').", 'info_title': "About Storefront", 'info_body': "The Storefront <b>must</b> match your Apple account's country. An incorrect code can cause errors, especially with lyrics or region-specific content. Use 'Detect' to find it automatically from your IP address."},
+        'language': {
+            'info_title': "Language Preference",
+            'info_body': """This setting requests metadata (like song titles and lyrics) in a specific language.
+<br><br>
+It is <b>highly recommended</b> to leave this blank if you are unsure what it does. For most users, changing the <b>Storefront</b> is the correct way to get fully localized metadata.
+<br><br>
+An incorrect or unsupported language code will be ignored. For more information and a list of supported codes, please refer to this <a href="https://gist.github.com/itouakirai/c8ba9df9dc65bd300094103b058731d0" style="color: #fd576b; text-decoration: none;">link here</a>.
+"""
+        },
         'media-user-token': {
             'tip': "Your personal Apple Music authentication token.", 
             'info_title': "Media User Token Guide", 
@@ -327,19 +381,44 @@ class SettingsPage(QWidget):
             """
         },
         'authorization-token': {'tip': "Optional bearer token for some API requests."},
-        'album-folder-format': {'tip': "Define the folder structure for downloaded albums."},
-        'playlist-folder-format': {'tip': "Define the folder structure for downloaded playlists."},
-        'song-file-format': {'tip': "Define the file naming scheme for downloaded songs."},
-        'artist-folder-format': {'tip': "Define artist folder structure. Leave blank to directly save in folder without making Artist Folder."},
-        'decrypt-m3u8-port': {'tip': "Local port used by the backend for decryption.", 'info_title': "Decryption Port", 'info_body': "The backend downloader uses this port for decrypting HLS streams. Change this only if it conflicts with another application on your system."},
-        'get-m3u8-port': {'tip': "Local port used by the backend for fetching manifests."},
+        'album-folder-format': {'tip': "Defines the name for the album's subfolder. <b>Leave this blank to NOT create an album subfolder.</b>"},
+        'playlist-folder-format': {'tip': "Defines the name for the playlist's subfolder. <b>Leave this blank to NOT create a playlist subfolder.</b>"},
+        'song-file-format': {'tip': "Define the file naming for downloaded songs."},
+        'mv-file-format': {'tip': "Define the file naming for downloaded music videos."},
+        'artist-folder-format': {'tip': "Defines the artist folder structure. <b>Leave this blank to NOT create artist-specific folders.</b> This will also stop playlists from being saved inside a curator folder."},
+        'decrypt-m3u8-port': {'tip': "Local port for decryption. <b>Do NOT change this unless you are sure it conflicts with another application.</b>", 'info_title': "Decryption Port", 'info_body': "The backend downloader uses this port for decrypting HLS streams. Change this only if it conflicts with another application on your system."},
+        'get-m3u8-port': {'tip': "Local port for fetching manifests. <b>Do NOT change this unless you are sure it conflicts with another application.</b>"},
         'alac-max': {'tip': "Maximum sample rate for ALAC (lossless) downloads."},
         'atmos-max': {'tip': "Maximum bitrate for Dolby Atmos downloads."},
         'explicit-choice': {'tip': "Tag for explicit content. Leave blank to disable."},
         'clean-choice': {'tip': "Tag for clean content. Leave blank to disable."},
         'apple-master-choice': {'tip': "Tag for Apple Digital Masters. Leave blank to disable."},
-        'aac-type': {'info_title': "AAC Audio Type", 'info_body': "aac-lc: Standard, high-quality stereo. Best for most users.\n\naac-binaural: Special mix for Spatial Audio on headphones.\n\naac-downmix: A stereo version derived from a Dolby Atmos mix."},
-        'lrc-format': {'tip': "Select lyrics format. Note: TTML format cannot be embedded into audio files."}
+        'aac-type': {'info_title': "AAC Audio Type", 'info_body': "AAC-LC: Standard, high-quality stereo. Best for most users.\n\nAAC-Binaural: Special mix for Spatial Audio on headphones.\n\nAAC-Downmix: A stereo version derived from a Dolby Atmos mix."},
+        'lrc-format': {'tip': "Select LRC format. Note: TTML format cannot be embedded into audio files."},
+        'use-songinfo-for-playlist': {
+            'tip': "Tags songs with their original album/artist info, not playlist details.",
+            'info_title': "Use Original Album Tags for Playlist Songs",
+            'info_body': "When enabled, songs downloaded from a playlist will be tagged with metadata from their original album (e.g., album name, album artist, release date, copyright). If disabled, they will be tagged with the playlist's name and curator."
+        },
+        'dl-albumcover-for-playlist': {
+            'tip': "Embeds each song's own artwork instead of the playlist's cover.",
+            'info_title': "Embed Individual Song Artwork",
+            'info_body': "When downloading a playlist, this option fetches and embeds the specific artwork for each individual song. If disabled, the main playlist cover art will be used for all tracks (if cover embedding is on)."
+        },
+        'use-song-metadata-for-playlist-numbering': {
+            'tip': "Uses original disc/track numbers for file naming, not playlist order.",
+            'info_title': "Use Original Track Numbering for Playlist Songs",
+            'info_body': """When enabled, downloading a playlist will use the song's real disc and track number for the {DiscNumber} and {SongNumber} placeholders in your file name format.<br><br>
+                         <b>Example:</b> A song is 20th in a playlist, but it's track 5 on disc 2 of its original album.
+                         <ul>
+                         <li><b>Disabled (Default):</b> {DiscNumber}-{SongNumber} becomes 1-20</li>
+                         <li><b>Enabled:</b> {DiscNumber}-{SongNumber} becomes 2-05</li>
+                         </ul>"""
+        },
+        'get-m3u8-from-device': {
+            'info_title': "Get Manifest From Device",
+            'info_body': "Enabling this option uses a connected device via the wrapper to fetch audio manifests. This method can provide access to the highest quality <b>Hi-Res Lossless (ALAC)</b> streams, which are often unavailable through the standard web API."
+        }
     }
 
     def __init__(self, config_path='config.yaml', parent=None):
@@ -376,7 +455,6 @@ class SettingsPage(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-     
         self.hero = QWidget()
         self.hero.setObjectName("SettingsHero")
         hero_lay = QHBoxLayout(self.hero)
@@ -398,13 +476,11 @@ class SettingsPage(QWidget):
         hero_lay.addLayout(title_box, 1)
         root.addWidget(self.hero)
 
-   
         main_content = QWidget()
         main_layout = QHBoxLayout(main_content)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-    
         self.nav_pane = QFrame()
         self.nav_pane.setObjectName("NavPane")
         self.nav_pane.setFixedWidth(220)
@@ -417,18 +493,15 @@ class SettingsPage(QWidget):
         self.nav_button_group.setExclusive(True)
         main_layout.addWidget(self.nav_pane)
 
-     
         separator = QFrame()
         separator.setFrameShape(QFrame.Shape.VLine)
         separator.setObjectName("Separator")
         main_layout.addWidget(separator)
 
-    
         self.content_stack = QStackedWidget()
         main_layout.addWidget(self.content_stack, 1)
         root.addWidget(main_content, 1)
 
- 
         self.bottom = QFrame()
         self.bottom.setObjectName("BottomBar")
         bl = QHBoxLayout(self.bottom)
@@ -570,18 +643,19 @@ class SettingsPage(QWidget):
         try:
             with open(self.config_path, 'r', encoding='utf-8') as f:
                 data = yaml.safe_load(f) or {}
-        except Exception:
-            data = {}
-        
-        merged = copy.deepcopy(self.DEFAULTS)
-        for key, value in data.items():
-            if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
-                merged[key].update(value)
-            else:
-                merged[key] = value
+            
+            merged = copy.deepcopy(self.DEFAULTS)
+            merged.update(data)
+            self.config = merged
 
-        self.config = merged
-        self.original = copy.deepcopy(merged)
+        except FileNotFoundError:
+            self.config = copy.deepcopy(self.DEFAULTS)
+            self._write(self.config)
+        
+        except Exception:
+            self.config = copy.deepcopy(self.DEFAULTS)
+
+        self.original = copy.deepcopy(self.config)
 
     def _iter_category_names_in_order(self) -> list[str]:
         base = list(self.CATEGORIES.keys())
@@ -673,7 +747,7 @@ class SettingsPage(QWidget):
             form_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
             form_layout.setFormAlignment(Qt.AlignmentFlag.AlignTop)
             form_layout.setHorizontalSpacing(15)
-            form_layout.setVerticalSpacing(12)
+            form_layout.setVerticalSpacing(18)
             self.form_layouts[cat_name] = form_layout
 
             if cat_name == "General":
@@ -681,12 +755,25 @@ class SettingsPage(QWidget):
             elif cat_name == "Naming Formats":
                 form_layout.addRow(self._create_subheader("Folder & File Naming"))
 
-            for key in keys:
+            non_bool_keys = [k for k in keys if not isinstance(self._get_default_value(k), bool)]
+            bool_keys = [k for k in keys if isinstance(self._get_default_value(k), bool)]
+
+            for key in non_bool_keys:
                 if key == 'alac-save-folder' and cat_name == "General":
+                    separator = QFrame()
+                    separator.setFixedHeight(1)
+                    separator.setStyleSheet("background-color: #444; margin-top: 10px; margin-bottom: 5px;")
+                    form_layout.addRow(separator)
                     form_layout.addRow(self._create_subheader("Save Locations"))
                 
                 field_widget, label_widget = self._make_field_widget(key)
                 form_layout.addRow(label_widget, field_widget)
+            
+            if bool_keys:
+                for key in bool_keys:
+                    toggle, label_widget = self._make_field_widget(key)
+                    form_layout.addRow(label_widget, toggle)
+
             page_layout.addLayout(form_layout)
         
         return page_widget
@@ -711,8 +798,27 @@ class SettingsPage(QWidget):
         info_title = help_data.get('info_title')
         info_body = help_data.get('info_body')
         
-        label_text = key.split('.')[-1].replace('-', ' ').replace('_', ' ').title()
+        custom_labels = {
+            'use-songinfo-for-playlist': "Use Original Album Tags",
+            'dl-albumcover-for-playlist': "Embed Individual Song Artwork",
+            'use-song-metadata-for-playlist-numbering': "Use Original Track Numbering",
+            'embed-lrc': "Embed LRC",
+            'save-lrc-file': "Save LRC File",
+            'emby-animated-artwork': "Emby Animated Artwork",
+            'tag-options.use-mp4box-artist': "Use MP4Box for MV Artist Tag",
+            'tag-options.delete-sort-on-write': "Delete Sort Tags",
+            'mv-audio-type': "MV Audio Type",
+            'mv-max': "MV Max Resolution",
+            'mv-save-folder': "MV Save Folder"
+        }
         
+        if key in custom_labels:
+            label_text = custom_labels[key]
+        else:
+            label_text = key.split('.')[-1].replace('-', ' ').replace('_', ' ').title()
+            if 'Lrc' in label_text:
+                label_text = label_text.replace('Lrc', 'LRC')
+
         label_container = QHBoxLayout()
         label_container.setContentsMargins(0,0,0,0)
         label_container.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
@@ -721,8 +827,7 @@ class SettingsPage(QWidget):
         label_widget.setObjectName("SettingLabel")
         label_container.addWidget(label_widget)
         
-     
-        if info_title and info_body and key not in self.CATEGORIES["Playlist Settings"]:
+        if info_title and info_body:
             info_btn = InfoButton()
             info_btn.clicked.connect(lambda _, t=info_title, b=info_body: self._show_info_popup(t, b))
             label_container.addWidget(info_btn)
@@ -731,19 +836,26 @@ class SettingsPage(QWidget):
         label_wrapper.setLayout(label_container)
 
         if isinstance(default_value, bool):
-            checkbox = CustomCheckBox("") 
-            checkbox.setChecked(bool(value))
-            checkbox.stateChanged.connect(self._mark_dirty)
-            self.widgets[key] = checkbox
-            return checkbox, label_wrapper
+            toggle = ToggleSwitch()
+            toggle.setChecked(bool(value))
+            toggle.stateChanged.connect(self._mark_dirty)
+            self.widgets[key] = toggle
+            return toggle, label_wrapper
 
         field_container = QVBoxLayout()
         field_container.setSpacing(4)
+        field_container.setContentsMargins(0,0,0,0)
         
         if key in self.OPTIONS:
             widget = QComboBox()
             widget.addItems(self.OPTIONS[key])
-            widget.setCurrentText(str(value))
+            
+            current_value_lower = str(value).lower()
+            for i in range(widget.count()):
+                if widget.itemText(i).lower() == current_value_lower:
+                    widget.setCurrentIndex(i)
+                    break
+
             widget.currentTextChanged.connect(self._mark_dirty)
             widget.setProperty("coerce_int", key in ("alac-max", "atmos-max", "mv-max"))
             field_container.addWidget(widget)
@@ -755,6 +867,7 @@ class SettingsPage(QWidget):
             
             row_layout = QHBoxLayout()
             row_layout.setSpacing(6)
+            row_layout.setContentsMargins(0,0,0,0)
             row_layout.addWidget(widget, 1)
 
             if key == 'storefront':
@@ -781,7 +894,7 @@ class SettingsPage(QWidget):
             chips_widget = QWidget()
             chips_layout = QHBoxLayout(chips_widget)
             chips_layout.setContentsMargins(0, 5, 0, 0)
-            chips_layout.setSpacing(6)
+            chips_layout.setSpacing(8)
             chips_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
             
             for token in self.PLACEHOLDERS[key]:
@@ -797,20 +910,19 @@ class SettingsPage(QWidget):
         return container_widget, label_wrapper
 
     def _update_naming_preview(self, key: str, text: str, label: QLabel):
-  
         pass
 
     def _apply_metadata_preset(self, preset: str):
         presets = {
-            'basic': ['write-title', 'write-artist', 'write-album', 'write-album-artist', 'write-genre', 'write-date', 'write-disc-track', 'write-cover'],
-            'detailed': ['write-title', 'write-artist', 'write-album', 'write-album-artist', 'write-composer', 'write-genre', 'write-isrc', 'write-upc', 'write-date', 'write-copyright', 'write-publisher', 'write-disc-track', 'write-lyrics', 'write-cover'],
+            'basic': ['write-title', 'write-artist', 'write-album', 'write-album-artist', 'write-genre', 'write-date', 'write-disc-track'],
+            'detailed': ['write-title', 'write-artist', 'write-album', 'write-album-artist', 'write-composer', 'write-genre', 'write-isrc', 'write-upc', 'write-date', 'write-copyright', 'write-publisher', 'write-disc-track'],
             'full': [k.split('.')[-1] for k in self.CATEGORIES['Metadata Tagging'] if 'use-mp4box-artist' not in k]
         }
         
         active_preset = [f"tag-options.{p}" for p in presets.get(preset, [])]
         
         for key, widget in self.widgets.items():
-            if key.startswith('tag-options.') and isinstance(widget, QCheckBox):
+            if key.startswith('tag-options.') and isinstance(widget, ToggleSwitch):
                 widget.setChecked(key in active_preset)
         
         self._mark_dirty()
@@ -869,6 +981,8 @@ class SettingsPage(QWidget):
                     try: val = int(val)
                     except Exception: pass
                 value = val
+                if key in ('aac-type', 'mv-audio-type', 'lrc-format'):
+                    value = value.lower()
             elif isinstance(w, QLineEdit):
                 v = w.text()
                 default_val = self._get_default_value(key)
@@ -876,7 +990,7 @@ class SettingsPage(QWidget):
                     try: value = int(v)
                     except Exception: value = 0
                 else: value = v
-            elif isinstance(w, QCheckBox):
+            elif isinstance(w, ToggleSwitch):
                 value = w.isChecked()
 
             if '.' in key:
@@ -904,20 +1018,23 @@ class SettingsPage(QWidget):
         return r == QMessageBox.StandardButton.Yes
 
     def _update_widgets_from_config(self):
-        """Efficiently update widget values from the current config without rebuilding the UI."""
         for key, w in self.widgets.items():
             value = self._get_config_value(key)
             
             if isinstance(w, QComboBox):
-                w.setCurrentText(str(value))
+                current_value_lower = str(value).lower()
+                for i in range(w.count()):
+                    if w.itemText(i).lower() == current_value_lower:
+                        w.setCurrentIndex(i)
+                        break
             elif isinstance(w, QLineEdit):
                 w.setText(str(value or ''))
-            elif isinstance(w, QCheckBox):
+            elif isinstance(w, ToggleSwitch):
                 w.setChecked(bool(value))
 
     def _on_reset(self):
         reply = QMessageBox.question(self, "Confirm Reset", 
-                                     "Do you really want to reset format, quality, and lyric settings to their defaults?",
+                                     "Do you really want to reset format, quality, and Lyrics settings to their defaults?",
                                      QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                                      QMessageBox.StandardButton.No)
 
@@ -931,7 +1048,7 @@ class SettingsPage(QWidget):
             self._dirty = True
 
             title = "Info"
-            body = ("Settings for naming, quality, and lyrics were reset.\n\n"
+            body = ("Settings for naming, quality, and Lyrics were reset.\n\n"
                     "Your tokens, storefront, language, and save folders have been preserved.")
             self._show_info_popup(title, body)
 

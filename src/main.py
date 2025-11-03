@@ -5,6 +5,7 @@ import os
 import traceback
 import atexit
 from PyQt6.QtWidgets import QApplication
+from PyQt6.QtCore import QSettings
 from PyQt6.QtGui import QFontDatabase, QFont, QIcon
 from core.app import AppController
 from ui.main_window import MainWindow
@@ -26,7 +27,6 @@ FONT_FAMILY_STYLESHEET = f'font-family: "{APP_FONT_FAMILY}", {APP_FALLBACK_FONTS
 
 
 DARK_STYLESHEET = f"""
-    /* Universal font setting for all widgets */
     * {{
         {FONT_FAMILY_STYLESHEET}
     }}
@@ -94,7 +94,7 @@ DARK_STYLESHEET = f"""
     }}
 """
 
-VERSION = "0.2.0"
+VERSION = "1.0.0"
 REPO_OWNER = "rwnk-12"
 REPO_NAME = "apmyx-gui"
 RELEASES_URL = f"https://github.com/{REPO_OWNER}/{REPO_NAME}/releases"
@@ -188,6 +188,9 @@ if __name__ == "__main__":
     setup_logging()
     
     app = QApplication(sys.argv)
+    
+    app.setOrganizationName("rwnk-12")
+    app.setApplicationName("apmyx-gui")
     
     icon_path = resource_path('src/assets/icon.ico')
     if os.path.exists(icon_path):

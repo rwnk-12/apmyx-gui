@@ -46,14 +46,13 @@ class DownloadJobRunner(QRunnable):
         self.saw_progress = False
         self.error_lines = []
         self.progress_regex = re.compile(r"(?:\r?)(Downloading|Decrypting)\.*?\s+(\d+)%")
+        self.video_dim_regex = re.compile(r"^Video: (.+)")
 
-        # Throttling mechanism
-        self.emit_interval = 0.05  # Emit progress updates at most every 50ms (20 FPS)
+
+        self.emit_interval = 0.05  
         self.last_emit_time = 0
         self._latest_progress_data = None
         self._progress_lock = threading.Lock()
-
-        # Track last progress values for smooth transitions
         self.last_download_percent = 0
         self.last_decrypt_percent = 0
         self.current_phase = "STARTING"
@@ -75,6 +74,8 @@ class DownloadJobRunner(QRunnable):
             re.compile(r"^(Video|Audio): "),
             re.compile(r"^MV Remuxing..."),
             re.compile(r"^MV Remuxed."),
+            re.compile(r"^Download(ing|ed)"),
+            re.compile(r"^Decrypt(ing|ed)"),
         ]
 
     def _is_decryptor_connection_failure(self, line: str) -> bool:
@@ -94,12 +95,9 @@ class DownloadJobRunner(QRunnable):
         return f"{f:.1f} {units[s]}"
 
     def _should_use_album_like_tracking(self):
-        """Determine if this download should use album-like progress tracking"""
-        # Enable for all multi-track items (albums, playlists); disable only for true singles/MVs
         return not self.is_single_song and not (self.is_mv and self.total_tracks == 1)
 
     def _emit_progress(self, status_text, track_percent, overall_percent, force=False):
-        """Stores progress data and emits it if throttling interval has passed or if forced."""
         now = time.monotonic()
         with self._progress_lock:
             self._latest_progress_data = (status_text, track_percent, overall_percent)
@@ -112,6 +110,12 @@ class DownloadJobRunner(QRunnable):
         if not msg:
             return
 
+        dim_match = self.video_dim_regex.match(msg)
+        if dim_match:
+            dimension_str = dim_match.group(1).strip()
+            self.signals.stream_label.emit(self.job_id, dimension_str)
+            return
+
         log_prefix = "[Go Backend ERR]" if is_stderr else "[Go Backend]"
         logging.info(f"{log_prefix} {msg}")
 
@@ -120,7 +124,6 @@ class DownloadJobRunner(QRunnable):
                 logging.warning(f"PAUSE TRIGGER: Detected decryptor connection failure for job {self.job_id}.")
                 self._pause_triggered = True
                 self.signals.pause_queue_requested.emit(self.job_id)
-                # The worker will terminate the process upon receiving this signal
                 return
 
             if not any(p.match(msg) for p in self.info_stderr_patterns):
@@ -148,18 +151,18 @@ class DownloadJobRunner(QRunnable):
                         self.total_bytes = int(tb)
 
                 if progress_type == "track_start":
-                    # Check if backend says this is a user playlist
+       
                     if progress_data.get("isUserPlaylist"):
                         self.backend_says_user_playlist = True
                         
                     if not self.total_tracks_updated:
                         total_from_backend = progress_data.get("total_tracks")
-                        # Use album-like tracking for user playlists
+        
                         if total_from_backend and total_from_backend > 0 and self._should_use_album_like_tracking():
                             self.total_tracks = total_from_backend
                             self.total_tracks_updated = True
 
-                    # Enable track synchronization for user playlists  
+            
                     if self._should_use_album_like_tracking():
                         new_track_num = progress_data.get("track_num", 0)
                         if new_track_num > 0:
@@ -215,9 +218,9 @@ class DownloadJobRunner(QRunnable):
                             display_percent = int((percent / 49.0) * 100) if percent < 49 else 100
                             status_text = f"({display_track_num}/{self.total_tracks}) Downloading ({display_percent}%): {self.current_track_name}"
                         elif self.mv_phase == "PROCESSING":
-                            status_text = f"({display_track_num}/{self.total_tracks}) Processing files...: {self.current_track_name}"
+                            status_text = f"({display_track_num}/{self.total_tracks}) Processing: {self.current_track_name}"
                         elif self.mv_phase == "REMUXING":
-                            status_text = f"({display_track_num}/{self.total_tracks}) Remuxing video & audio...: {self.current_track_name}"
+                            status_text = f"({display_track_num}/{self.total_tracks}) Remuxing video & audio: {self.current_track_name}"
                     else:
                         status_text = f"({display_track_num}/{self.total_tracks}) Downloading ({percent_i}%): {self.current_track_name}"
 
@@ -235,7 +238,7 @@ class DownloadJobRunner(QRunnable):
                         size_suffix = f" • {self._fmt_bytes(self.downloaded_bytes)} of {self._fmt_bytes(self.total_bytes)}"
                     status_text += size_suffix
 
-                    # Force emit on first tick, on per-track integer change, or on overall integer change
+
                     force_emit = (
                         not self._first_progress_sent or
                         self._last_int_percent != percent_i or
@@ -249,7 +252,7 @@ class DownloadJobRunner(QRunnable):
 
                 elif progress_type == "track_complete":
                     self.completed_tracks += 1
-                    #  Re-sync with backend for user playlists too
+      
                     if self._should_use_album_like_tracking():
                         completed_num = progress_data.get("track_num", self.completed_tracks)
                         self.completed_tracks = max(self.completed_tracks, completed_num)
@@ -480,14 +483,13 @@ class DownloadWorker(QObject):
         action was taken.
         """
         removed = False
-        # If the currently running job matches, terminate it.
-        # The runner's `finished` signal will handle the subsequent state cleanup.
+
         if self.is_busy and self.current_job_id == job_id:
             logging.info(f"Requesting cancellation for running job {job_id}.")
             self.stop_current_job()
             removed = True
 
-        # Remove the job from the pending download queue.
+   
         initial_len = len(self.download_queue)
         self.download_queue = [job for job in self.download_queue if job['job_id'] != job_id]
         if len(self.download_queue) < initial_len:
@@ -495,7 +497,7 @@ class DownloadWorker(QObject):
             self.queue_status_update.emit(len(self.download_queue))
             removed = True
 
-        # If not found yet, it might be a fetch operation that hasn't reached the worker.
+
         if not removed:
             if self.controller.cancel_fetch(job_id):
                 removed = True
@@ -566,7 +568,7 @@ class DownloadWorker(QObject):
             allowed_flags = {
                 'aac-save-folder', 'alac-save-folder', 'atmos-save-folder', 'mv-save-folder',
                 'album-folder-format', 'artist-folder-format', 'playlist-folder-format',
-                'song-file-format', 'cover-format', 'cover-size', 'aac-type', 'alac-max',
+                'song-file-format', 'mv-file-format', 'cover-format', 'cover-size', 'aac-type', 'alac-max',
                 'atmos-max', 'mv-audio-type', 'mv-max', 'decrypt-m3u8-port', 'get-m3u8-port',
                 'get-m3u8-mode', 'get-m3u8-from-device', 'apple-master-choice',
                 'explicit-choice', 'clean-choice', 'embed-cover', 'embed-lrc',
@@ -597,7 +599,6 @@ class DownloadWorker(QObject):
 
             logging.info(f"Executing Go backend with command: {' '.join(command)}")
 
-            # Pass original_url to the runner for proper detection
             runner = DownloadJobRunner(
                 job['job_id'], 
                 command, 
@@ -605,7 +606,7 @@ class DownloadWorker(QObject):
                 self, 
                 quality_pref, 
                 is_playlist=is_playlist_url,
-                original_url=url_to_download  #Pass the URL
+                original_url=url_to_download 
             )
             
             runner.signals.fetching.connect(self.job_fetching)
@@ -630,18 +631,17 @@ class DownloadWorker(QObject):
             return
         
         self.pause_queue()
-        self.stop_current_job() # Terminate the process that triggered the pause
-        
-        # Construct the full list of jobs to be saved
+        self.stop_current_job() 
+
         full_queue_to_persist = [self.current_job_dict] + self.download_queue
         
-        # Clear the internal queue as it will be persisted externally
+
         self.download_queue.clear()
         
-        # Signal to the main window to handle persistence
+
         self.queue_has_been_paused.emit(full_queue_to_persist)
         
-        # Reset state
+
         self.is_busy = False
         self.current_job_id = None
         self.current_job_dict = None

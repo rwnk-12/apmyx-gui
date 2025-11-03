@@ -191,7 +191,7 @@ class SearchFeatures:
             header_container = QWidget()
             header_layout = QHBoxLayout(header_container)
             header_layout.setContentsMargins(0, 10, 0, 5)
-            header_layout.setSpacing(4)
+            header_layout.setSpacing(1)
             
             header = QLabel(title)
             header.setStyleSheet("font-size: 17px; font-weight: bold;")
@@ -205,14 +205,18 @@ class SearchFeatures:
             painter = QPainter(pixmap)
             renderer.render(painter)
             painter.end()
-            chevron_label.setPixmap(pixmap)
-            chevron_label.setFixedSize(16, 16)
+            scaled_pixmap = pixmap.scaledToHeight(18, Qt.TransformationMode.SmoothTransformation)
+            chevron_label.setPixmap(scaled_pixmap)
+            chevron_label.setFixedSize(18, 18)
+
+            chevron_label.setContentsMargins(0, 2, 0, -2)
             
             header_container.setCursor(Qt.CursorShape.PointingHandCursor)
             header_container.mousePressEvent = lambda event, t=title: self._navigate_to_tab(t)
             
-            header_layout.addWidget(header, 0, Qt.AlignmentFlag.AlignVCenter)
-            header_layout.addWidget(chevron_label, 0, Qt.AlignmentFlag.AlignVCenter)
+            header_layout.addWidget(header, 0, Qt.AlignmentFlag.AlignTop)
+            header_layout.addWidget(chevron_label, 0, Qt.AlignmentFlag.AlignTop)
+
             header_layout.addStretch()
             
             parent_layout.addWidget(header_container)

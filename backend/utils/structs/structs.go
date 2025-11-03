@@ -1,45 +1,47 @@
 package structs
 
 type ConfigSet struct {
-	Storefront              string `yaml:"storefront" json:"storefront"`
-	MediaUserToken          string `yaml:"media-user-token" json:"media-user-token"`
-	AuthorizationToken      string `yaml:"authorization-token" json:"authorization-token"`
-	Language                string `yaml:"language" json:"language"`
-	SaveLrcFile             bool   `yaml:"save-lrc-file" json:"save-lrc-file"`
-	LrcType                 string `yaml:"lrc-type" json:"lrc-type"`
-	LrcFormat               string `yaml:"lrc-format" json:"lrc-format"`
-	SaveAnimatedArtwork     bool   `yaml:"save-animated-artwork" json:"save-animated-artwork"`
-	EmbyAnimatedArtwork     bool   `yaml:"emby-animated-artwork" json:"emby-animated-artwork"`
-	EmbedLrc                bool   `yaml:"embed-lrc" json:"embed-lrc"`
-	EmbedCover              bool   `yaml:"embed-cover" json:"embed-cover"`
-	SaveArtistCover         bool   `yaml:"save-artist-cover" json:"save-artist-cover"`
-	CoverSize               string `yaml:"cover-size" json:"cover-size"`
-	CoverFormat             string `yaml:"cover-format" json:"cover-format"`
-	AlacSaveFolder          string `yaml:"alac-save-folder" json:"alac-save-folder"`
-	AtmosSaveFolder         string `yaml:"atmos-save-folder" json:"atmos-save-folder"`
-	AacSaveFolder           string `yaml:"aac-save-folder" json:"aac-save-folder"`
-	MvSaveFolder            string `yaml:"mv-save-folder" json:"mv-save-folder"`
-	AlbumFolderFormat       string `yaml:"album-folder-format" json:"album-folder-format"`
-	PlaylistFolderFormat    string `yaml:"playlist-folder-format" json:"playlist-folder-format"`
-	ArtistFolderFormat      string `yaml:"artist-folder-format" json:"artist-folder-format"`
-	SongFileFormat          string `yaml:"song-file-format" json:"song-file-format"`
-	ExplicitChoice          string `yaml:"explicit-choice" json:"explicit-choice"`
-	CleanChoice             string `yaml:"clean-choice" json:"clean-choice"`
-	AppleMasterChoice       string `yaml:"apple-master-choice" json:"apple-master-choice"`
-	MaxMemoryLimit          int    `yaml:"max-memory-limit" json:"max-memory-limit"`
-	DecryptM3u8Port         string `yaml:"decrypt-m3u8-port" json:"decrypt-m3u8-port"`
-	GetM3u8Port             string `yaml:"get-m3u8-port" json:"get-m3u8-port"`
-	GetM3u8Mode             string `yaml:"get-m3u8-mode" json:"get-m3u8-mode"`
-	GetM3u8FromDevice       bool   `yaml:"get-m3u8-from-device" json:"get-m3u8-from-device"`
-	AacType                 string `yaml:"aac-type" json:"aac-type"`
-	AlacMax                 int    `yaml:"alac-max" json:"alac-max"`
-	AtmosMax                int    `yaml:"atmos-max" json:"atmos-max"`
-	LimitMax                int    `yaml:"limit-max" json:"limit-max"`
-	UseSongInfoForPlaylist  bool   `yaml:"use-songinfo-for-playlist" json:"use-songinfo-for-playlist"`
-	DlAlbumcoverForPlaylist bool   `yaml:"dl-albumcover-for-playlist" json:"dl-albumcover-for-playlist"`
-	MVAudioType             string `yaml:"mv-audio-type" json:"mv-audio-type"`
-	MVMax                   int    `yaml:"mv-max" json:"mv-max"`
-	TagOptions              struct {
+	Storefront                          string `yaml:"storefront" json:"storefront"`
+	MediaUserToken                      string `yaml:"media-user-token" json:"media-user-token"`
+	AuthorizationToken                  string `yaml:"authorization-token" json:"authorization-token"`
+	Language                            string `yaml:"language" json:"language"`
+	SaveLrcFile                         bool   `yaml:"save-lrc-file" json:"save-lrc-file"`
+	LrcType                             string `yaml:"lrc-type" json:"lrc-type"`
+	LrcFormat                           string `yaml:"lrc-format" json:"lrc-format"`
+	SaveAnimatedArtwork                 bool   `yaml:"save-animated-artwork" json:"save-animated-artwork"`
+	EmbyAnimatedArtwork                 bool   `yaml:"emby-animated-artwork" json:"emby-animated-artwork"`
+	EmbedLrc                            bool   `yaml:"embed-lrc" json:"embed-lrc"`
+	EmbedCover                          bool   `yaml:"embed-cover" json:"embed-cover"`
+	SaveArtistCover                     bool   `yaml:"save-artist-cover" json:"save-artist-cover"`
+	CoverSize                           string `yaml:"cover-size" json:"cover-size"`
+	CoverFormat                         string `yaml:"cover-format" json:"cover-format"`
+	AlacSaveFolder                      string `yaml:"alac-save-folder" json:"alac-save-folder"`
+	AtmosSaveFolder                     string `yaml:"atmos-save-folder" json:"atmos-save-folder"`
+	AacSaveFolder                       string `yaml:"aac-save-folder" json:"aac-save-folder"`
+	MvSaveFolder                        string `yaml:"mv-save-folder" json:"mv-save-folder"`
+	AlbumFolderFormat                   string `yaml:"album-folder-format" json:"album-folder-format"`
+	PlaylistFolderFormat                string `yaml:"playlist-folder-format" json:"playlist-folder-format"`
+	ArtistFolderFormat                  string `yaml:"artist-folder-format" json:"artist-folder-format"`
+	SongFileFormat                      string `yaml:"song-file-format" json:"song-file-format"`
+	MvFileFormat                        string `yaml:"mv-file-format" json:"mv-file-format"`
+	ExplicitChoice                      string `yaml:"explicit-choice" json:"explicit-choice"`
+	CleanChoice                         string `yaml:"clean-choice" json:"clean-choice"`
+	AppleMasterChoice                   string `yaml:"apple-master-choice" json:"apple-master-choice"`
+	MaxMemoryLimit                      int    `yaml:"max-memory-limit" json:"max-memory-limit"`
+	DecryptM3u8Port                     string `yaml:"decrypt-m3u8-port" json:"decrypt-m3u8-port"`
+	GetM3u8Port                         string `yaml:"get-m3u8-port" json:"get-m3u8-port"`
+	GetM3u8Mode                         string `yaml:"get-m3u8-mode" json:"get-m3u8-mode"`
+	GetM3u8FromDevice                   bool   `yaml:"get-m3u8-from-device" json:"get-m3u8-from-device"`
+	AacType                             string `yaml:"aac-type" json:"aac-type"`
+	AlacMax                             int    `yaml:"alac-max" json:"alac-max"`
+	AtmosMax                            int    `yaml:"atmos-max" json:"atmos-max"`
+	LimitMax                            int    `yaml:"limit-max" json:"limit-max"`
+	UseSongInfoForPlaylist              bool   `yaml:"use-songinfo-for-playlist" json:"use-songinfo-for-playlist"`
+	UseSongMetadataForPlaylistNumbering bool   `yaml:"use-song-metadata-for-playlist-numbering" json:"use-song-metadata-for-playlist-numbering"`
+	DlAlbumcoverForPlaylist             bool   `yaml:"dl-albumcover-for-playlist" json:"dl-albumcover-for-playlist"`
+	MVAudioType                         string `yaml:"mv-audio-type" json:"mv-audio-type"`
+	MVMax                               int    `yaml:"mv-max" json:"mv-max"`
+	TagOptions                          struct {
 		WriteTitle           bool `yaml:"write-title" json:"write-title"`
 		WriteArtist          bool `yaml:"write-artist" json:"write-artist"`
 		WriteArtistSort      bool `yaml:"write-artist-sort" json:"write-artist-sort"`

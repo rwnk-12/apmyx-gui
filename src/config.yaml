@@ -9,7 +9,7 @@ save-artist-cover: false
 save-animated-artwork: false
 emby-animated-artwork: false
 embed-cover: true
-cover-size: 6000x6000
+cover-size: 5000x5000
 cover-format: jpg
 alac-save-folder: ALAC Downloads
 atmos-save-folder: Atmos Downloads
@@ -24,39 +24,18 @@ aac-type: aac-lc
 alac-max: 192000
 atmos-max: 2768
 limit-max: 200
-album-folder-format: '{AlbumName} [{ReleaseYear}]'
-playlist-folder-format: '{PlaylistName} '
-song-file-format: '{DiscNumber}-{SongNumber}. {SongName} '
+album-folder-format: '{AlbumName}'
+playlist-folder-format: '{PlaylistName}'
+song-file-format: '{SongNumber}. {SongName}'
 artist-folder-format: '{UrlArtistName}'
 explicit-choice: '[E]'
 clean-choice: '[C]'
 apple-master-choice: '[M]'
 use-songinfo-for-playlist: true
 dl-albumcover-for-playlist: true
+use-song-metadata-for-playlist-numbering: false
 mv-audio-type: atmos
 mv-max: 2160
 storefront: ''
-tag-options:
-  write-title: true
-  write-artist: true
-  write-artist-sort: true
-  write-album: true
-  write-album-sort: true
-  write-album-artist: true
-  write-album-artist-sort: true
-  write-composer: true
-  write-composer-sort: true
-  write-genre: true
-  write-isrc: true
-  write-upc: true
-  write-date: true
-  write-copyright: true
-  write-publisher: true
-  write-disc-track: true
-  write-lyrics: true
-  write-cover: true
-  delete-sort-on-write: true
-  use-mp4box-artist: false
-create-curator-folder: false
-last_artwork_dir: ''
-preferred-quality: ALAC
+preferred-quality: AAC
+mv-file-format: '{ArtistName} - {VideoName}'

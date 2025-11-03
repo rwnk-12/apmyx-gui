@@ -9,7 +9,7 @@ from PyQt6.QtGui import QPixmap, QMouseEvent, QBitmap, QPainter, QColor, QPen, Q
 
 
 from ..search_widgets import LoadingSpinner, ImageFetcher, MarqueeLabel, round_pixmap
-from ..search_cards import DownloadIconButton, TracklistButton, InfoIconButton
+from ..search_cards import DownloadIconButton, TracklistButton, InfoIconButton, PlayButton
 
 class HoverMask(QLabel):
     def __init__(self, track_text, year_text, parent=None):
@@ -73,11 +73,11 @@ class ArtistAlbumCard(QWidget):
     tracklist_requested = pyqtSignal(object)
     info_requested = pyqtSignal(object)
     selection_changed = pyqtSignal(object, bool)
+    video_preview_requested = pyqtSignal(object)
 
     def __init__(self, album_data: dict, parent=None):
         super().__init__(parent)
         self.album_data = album_data
-        # Create a simplified dict for compatibility with main_window handlers
         attrs = self.album_data.get('attributes', {})
         self.result_data = {
             'id': self.album_data.get('id'),
@@ -144,6 +144,9 @@ class ArtistAlbumCard(QWidget):
         self.download_button = DownloadIconButton(self.artwork_container)
         self.tracklist_button = TracklistButton(self.artwork_container)
         self.info_button = InfoIconButton(self.artwork_container)
+        self.video_preview_button = PlayButton(self.artwork_container)
+        self.video_preview_button.setFixedSize(32, 32)
+        self.video_preview_button.setToolTip("Play Video Preview")
         
         self.action_spinner = LoadingSpinner(self.artwork_container)
         self.action_spinner.hide()
@@ -154,19 +157,23 @@ class ArtistAlbumCard(QWidget):
 
         self.info_button.move(5, artwork_width - self.info_button.height() - 10)
         if item_type == 'music-videos':
-            self.download_button.move(artwork_width - self.download_button.width() - 5, artwork_width - self.download_button.height() - 10)
+            self.download_button.move(artwork_width - self.download_button.width() - self.video_preview_button.width() - 10, artwork_width - self.download_button.height() - 10)
+            self.video_preview_button.move(artwork_width - self.video_preview_button.width() - 5, artwork_width - self.video_preview_button.height() - 10)
             self.tracklist_button.hide()
         else:
             self.download_button.move(artwork_width - self.download_button.width() - self.tracklist_button.width() - 10, artwork_width - self.download_button.height() - 10)
             self.tracklist_button.move(artwork_width - self.tracklist_button.width() - 5, artwork_width - self.tracklist_button.height() - 10)
+            self.video_preview_button.hide()
 
         self.download_button.clicked.connect(self.on_download_button_clicked)
         self.tracklist_button.clicked.connect(self.on_tracklist_button_clicked)
         self.info_button.clicked.connect(self.on_info_button_clicked)
+        self.video_preview_button.clicked.connect(self.on_video_preview_button_clicked)
         
         self.download_button.hide()
         self.tracklist_button.hide()
         self.info_button.hide()
+        self.video_preview_button.hide()
         
         layout.addWidget(self.artwork_container)
 
@@ -210,6 +217,8 @@ class ArtistAlbumCard(QWidget):
                 return
             if self.info_button.isVisible() and self.info_button.geometry().contains(local_pos):
                 return
+            if self.video_preview_button.isVisible() and self.video_preview_button.geometry().contains(local_pos):
+                return
         
         self.setSelected(not self.isSelected())
 
@@ -227,13 +236,16 @@ class ArtistAlbumCard(QWidget):
                 self.hover_mask.show()
                 self.download_button.show()
                 self.info_button.show()
-                if self.album_data.get('type') != 'music-videos':
+                if self.album_data.get('type') == 'music-videos':
+                    self.video_preview_button.show()
+                else:
                     self.tracklist_button.show()
             elif event.type() == QEvent.Type.Leave:
                 self.hover_mask.hide()
                 self.download_button.hide()
                 self.tracklist_button.hide()
                 self.info_button.hide()
+                self.video_preview_button.hide()
         return super().eventFilter(source, event)
 
     def _set_active_button(self, btn: QPushButton):
@@ -254,6 +266,10 @@ class ArtistAlbumCard(QWidget):
     def on_info_button_clicked(self):
         self._set_active_button(self.info_button)
         self.info_requested.emit(self)
+
+    def on_video_preview_button_clicked(self):
+        self._set_active_button(self.video_preview_button)
+        self.video_preview_requested.emit(self)
 
     def start_action(self):
         if self.active_button:

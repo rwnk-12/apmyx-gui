@@ -197,6 +197,8 @@ class AppController(QObject):
                 self.update_status_and_log(
                     f"Storefront switched to '{new_sf}'. New searches will use this region."
                 )
+            if 'use-song-metadata-for-playlist-numbering' in config:
+                self.update_status_and_log(f"Playlist metadata override set to: {config['use-song-metadata-for-playlist-numbering']}. This will affect new playlist downloads.")
         except Exception as e:
             self.update_status_and_log(f"Failed to apply runtime settings: {e}", 'error')
 

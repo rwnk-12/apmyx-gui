@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
     QStatusBar, QLabel, QLayout,
     QApplication, QDialog
 )
-from PyQt6.QtCore import pyqtSignal, QTimer, QThreadPool, pyqtSlot
+from PyQt6.QtCore import pyqtSignal, QTimer, QThreadPool, pyqtSlot, QSettings
 from PyQt6.QtGui import QAction
 from ..preview_player import Player
 from core.download_worker import DownloadWorker
@@ -37,6 +37,9 @@ class MainWindow(QMainWindow, UiSetupFeatures, LayoutAnimationFeatures, SearchFe
         self.controller = controller
         self.setWindowTitle("apmyx")
         self.setGeometry(100, 100, 1280, 800)
+        self.setMinimumSize(800, 600)
+        self.GEOMETRY_SETTING = "MainWindow/geometry"
+        self.STATE_SETTING = "MainWindow/state"
         self._current_page_with_menu_signal = None
         self.job_counter = 0
         self.is_welcome_view = False
@@ -93,6 +96,21 @@ class MainWindow(QMainWindow, UiSetupFeatures, LayoutAnimationFeatures, SearchFe
         self.spinner_action = None
         self.spinner_movie = None
         QTimer.singleShot(0, self.search_input.line_edit.setFocus)
+        self.restore_window_state()
+
+    def restore_window_state(self):
+        settings = QSettings()
+        geometry = settings.value(self.GEOMETRY_SETTING, b'')
+        if geometry:
+            self.restoreGeometry(geometry)
+        state = settings.value(self.STATE_SETTING, b'')
+        if state:
+            self.restoreState(state)
+
+    def save_window_state(self):
+        settings = QSettings()
+        settings.setValue(self.STATE_SETTING, self.saveState())
+        settings.setValue(self.GEOMETRY_SETTING, self.saveGeometry())
 
     def _load_initial_settings(self):
         valid_qualities = ["Atmos", "ALAC", "AAC"]
@@ -225,6 +243,7 @@ class MainWindow(QMainWindow, UiSetupFeatures, LayoutAnimationFeatures, SearchFe
             self._position_fetch_popup()
 
     def closeEvent(self, event):
+        self.save_window_state()
         if self._is_shutting_down:
             event.accept()
             return

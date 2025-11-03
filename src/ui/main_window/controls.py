@@ -198,13 +198,18 @@ class AACQualitySelector(QComboBox):
             QComboBox {
                 background-color: #3c3c3c;
                 border: 1px solid #555;
-                border-radius: 4px;
-                padding: 4px 8px;
+                border-radius: 15px;
+                padding: 4px 12px;
                 font-size: 9pt;
                 font-weight: bold;
+                min-height: 20px;
             }
             QComboBox::drop-down {
                 border: none;
+                width: 0px;
+            }
+            QComboBox::down-arrow {
+                image: none;
             }
         """)
 

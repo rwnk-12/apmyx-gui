@@ -25,6 +25,7 @@ class ArtistDiscographyPage(QWidget):
     tracklist_requested = pyqtSignal(object)
     info_requested = pyqtSignal(object)
     menu_requested = pyqtSignal()
+    video_preview_requested = pyqtSignal(object)
     
     def __init__(self, controller, artist_data: dict, parent=None):
         super().__init__(parent)
@@ -410,6 +411,7 @@ class ArtistDiscographyPage(QWidget):
             card.tracklist_requested.connect(self.tracklist_requested.emit)
             card.info_requested.connect(self.info_requested.emit)
             card.selection_changed.connect(self._handle_selection_changed)
+            card.video_preview_requested.connect(self.video_preview_requested.emit)
             
             main_window = self.window()
             if hasattr(main_window, 'card_widgets'):
