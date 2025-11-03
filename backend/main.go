@@ -717,7 +717,7 @@ func isUserPlaylist(playlistId string) bool {
 	return strings.HasPrefix(playlistId, "pl.u-")
 }
 
-func ripTrack(track *task.Track, token string, mediaUserToken string) {
+func ripTrack(track *task.Track, token string, mediaUserToken string, discTrackCounts map[int]int) {
 	var err error
 	counter.Total++
 
@@ -976,7 +976,7 @@ func ripTrack(track *task.Track, token string, mediaUserToken string) {
 	}
 
 	track.SavePath = trackPath
-	err = writeMP4Tags(track, lrc)
+	err = writeMP4Tags(track, lrc, discTrackCounts)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "⚠️ Failed to write tags in media %v", err)
 		counter.Unavailable++
@@ -1386,7 +1386,7 @@ func ripPlaylist(playlistId string, token string, storefront string, mediaUserTo
 	}
 
 	for i := range playlist.Tracks {
-		ripTrack(&playlist.Tracks[i], token, mediaUserToken)
+		ripTrack(&playlist.Tracks[i], token, mediaUserToken, nil)
 	}
 
 	return nil
@@ -1399,6 +1399,12 @@ func ripAlbum(albumId string, token string, storefront string, mediaUserToken st
 		return err
 	}
 	meta := album.Resp
+
+	discTrackCounts := make(map[int]int)
+	for _, trackData := range meta.Data[0].Relationships.Tracks.Data {
+		discTrackCounts[trackData.Attributes.DiscNumber]++
+	}
+
 	if json_output {
 		type AlbumProbe struct {
 			AlbumData interface{}  `json:"albumData"`
@@ -1659,7 +1665,7 @@ func ripAlbum(albumId string, token string, storefront string, mediaUserToken st
 						album.Tracks[i].M3u8 = m3u8Url
 					}
 
-					ripTrack(&album.Tracks[i], token, mediaUserToken)
+					ripTrack(&album.Tracks[i], token, mediaUserToken, discTrackCounts)
 					return nil
 				}
 			}
@@ -1680,7 +1686,7 @@ func ripAlbum(albumId string, token string, storefront string, mediaUserToken st
 
 		album.Tracks[i].M3u8 = m3u8Url
 
-		ripTrack(&album.Tracks[i], token, mediaUserToken)
+		ripTrack(&album.Tracks[i], token, mediaUserToken, discTrackCounts)
 	}
 	return nil
 }
@@ -1828,7 +1834,7 @@ func getBandwidthForStream(m3u8Url, codec, streamGroup string) (uint32, error) {
 	return 0, errors.New("stream group not found in manifest")
 }
 
-func writeMP4Tags(track *task.Track, lrc string) error {
+func writeMP4Tags(track *task.Track, lrc string, discTrackCounts map[int]int) error {
 	t := &mp4tag.MP4Tags{
 		Title:      track.Resp.Attributes.Name,
 		TitleSort:  track.Resp.Attributes.Name,
@@ -1888,7 +1894,11 @@ func writeMP4Tags(track *task.Track, lrc string) error {
 		t.Publisher = track.AlbumData.Attributes.RecordLabel
 	} else {
 		t.DiscTotal = int16(track.DiscTotal)
-		t.TrackTotal = int16(track.AlbumData.Attributes.TrackCount)
+		if discTrackCounts != nil {
+			t.TrackTotal = int16(discTrackCounts[track.Resp.Attributes.DiscNumber])
+		} else {
+			t.TrackTotal = int16(track.AlbumData.Attributes.TrackCount)
+		}
 		t.AlbumArtist = track.AlbumData.Attributes.ArtistName
 		t.AlbumArtistSort = track.AlbumData.Attributes.ArtistName
 		t.Custom["UPC"] = track.AlbumData.Attributes.Upc

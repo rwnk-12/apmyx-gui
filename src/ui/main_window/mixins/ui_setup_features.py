@@ -336,7 +336,7 @@ class UiSetupFeatures:
 
         sidebar_layout.addStretch()
 
-        version_label = QLabel("v1.0.0 [Stable]")
+        version_label = QLabel("v1.0.1")
         version_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         version_label.setStyleSheet("color: #777; font-size: 8pt; background-color: transparent; padding-bottom: 5px;")
         sidebar_layout.addWidget(version_label)

@@ -24,9 +24,9 @@ aac-type: aac-lc
 alac-max: 192000
 atmos-max: 2768
 limit-max: 200
-album-folder-format: '{AlbumName}'
+album-folder-format: '{AlbumName} [{ReleaseYear}]'
 playlist-folder-format: '{PlaylistName}'
-song-file-format: '{SongNumber}. {SongName}'
+song-file-format: '{DiscNumber}-{SongNumber}. {SongName}'
 artist-folder-format: '{UrlArtistName}'
 explicit-choice: '[E]'
 clean-choice: '[C]'
@@ -38,4 +38,4 @@ mv-audio-type: atmos
 mv-max: 2160
 storefront: ''
 preferred-quality: AAC
-mv-file-format: '{ArtistName} - {VideoName}'
+mv-file-format: '{ArtistName} - {VideoName} [{ReleaseYear}]'
