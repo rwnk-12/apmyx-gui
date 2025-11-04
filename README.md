@@ -5,14 +5,14 @@ A GUI based Apple Music downloader for Atmos, Lossless, and AAC formats for wind
 
 ## About
 
-Easily download your playlists, songs, albums, artist discographies, and music videos. For music videos and AAC LC 256, you only need a token and do not need to install the wrapper. The wrapper is required for ALAC, Atmos, AAC Binaural, and Downmix formats.
-Some browsers may block the download, flagging the zip file as harmful, which is a false positive. You can also download it from [Telegram](https://t.me/apmyx/2).
-The file contains no malicious scripts. The warning appears because it is not signed. You can safely ignore it and select 'Run Anyway' when opening the .exe.
+Easily download your playlists, songs, albums, artist discographies, and music videos. For music videos and AAC LC 256, you only need a **[token](https://github.com/rwnk-12/apmyx-gui/blob/master/README.md#getting-your-media-user-token-using-dev-tools)** and do not need to install the **[wrapper](https://github.com/rwnk-12/apmyx-gui/blob/master/README.md#wrapper-installation-windows)**. The **[wrapper](https://github.com/rwnk-12/apmyx-gui/blob/master/README.md#wrapper-installation-windows)** is required for ALAC, Atmos, AAC Binaural, and Downmix formats.
+
+Some browsers may block the download and flag the zip file as harmful due to a false positive. You can also download it from [Telegram](https://t.me/apmyx/2). The file contains no malicious scripts. The warning appears because it is not signed. You can safely ignore it and select "Run Anyway" when opening the .exe file.
 
 ## Features
 
-### Easy Search
-<img width="1919" height="1018" alt="search" src="https://github.com/user-attachments/assets/be03233c-c5e8-4840-8db7-d01aeacf4b21" />
+### Easy  Search
+<img width="1919" height="1021" alt="v1-main" src="https://github.com/user-attachments/assets/40cfb001-301a-412c-b3dd-c74ee0d7d099" />
 
 Search for your favorite songs and artists directly in the app.
 
