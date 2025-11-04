@@ -5,7 +5,7 @@ A GUI based Apple Music downloader for Atmos, Lossless, and AAC formats for wind
 
 ## About
 
-Easily download your playlists, songs, albums, artist discographies, and music videos. For music videos and AAC LC 256, you only need a **[token](https://github.com/rwnk-12/apmyx-gui/blob/master/README.md#getting-your-media-user-token-using-dev-tools)** and do not need to install the **[wrapper](https://github.com/rwnk-12/apmyx-gui/blob/master/README.md#wrapper-installation-windows)**. The **[wrapper](https://github.com/rwnk-12/apmyx-gui/blob/master/README.md#wrapper-installation-windows)** is required for ALAC, Atmos, AAC Binaural, and Downmix formats.
+Easily download your playlists, songs, albums, artist discographies up to Lossless 24B/192kHz, and music videos up to 4K. For music videos and AAC LC 256, you only need a **[token](https://github.com/rwnk-12/apmyx-gui/blob/master/README.md#getting-your-media-user-token-using-dev-tools)** and do not need to install the **[wrapper](https://github.com/rwnk-12/apmyx-gui/blob/master/README.md#wrapper-installation-windows)**. The **[wrapper](https://github.com/rwnk-12/apmyx-gui/blob/master/README.md#wrapper-installation-windows)** is required for ALAC, Atmos, AAC Binaural, and Downmix formats.
 
 Some browsers may block the download and flag the zip file as harmful due to a false positive. You can also download it from [Telegram](https://t.me/apmyx/10). The file contains no malicious scripts. The warning appears because it is not signed. You can safely ignore it and select "Run Anyway" when opening the .exe file.
 
