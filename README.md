@@ -38,10 +38,14 @@ You need an **active Apple Music subscription** to download music.
 
 ### Getting Your Media User Token Using Dev Tools
 
-1.Open the Apple Music website and log in with your subscription account.
-2.Open developer tools (usually Ctrl+Shift+I) and navigate to the Application tab. If the tab is not visible, click the ">>" symbol in the dev tools tabs to find it in the dropdown menu.
-3.In the Application tab, expand the Storage section and select Cookies, then click on https://music.apple.com.
-4.Find the cookie named media-user-token and copy its value.
+1. Open the Apple Music website and log in with your subscription account.
+
+2. Open developer tools (usually Ctrl+Shift+I) and navigate to the Application tab. If the tab is not visible, click the ">>" symbol in the dev tools tabs to find it in the dropdown menu.
+
+3. In the Application tab, expand the Storage section and select Cookies, then click on https://music.apple.com.
+
+4. Find the cookie named `media-user-token` and copy its value.
+
 
 ### Getting Your Media User Token using Cookies export. 
 
