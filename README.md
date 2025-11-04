@@ -5,7 +5,7 @@ A GUI based Apple Music downloader for Atmos, Lossless, and AAC formats for wind
 
 ## About
 
-Easily download your playlists, songs, albums, artist discographies, and music videos.
+Easily download your playlists, songs, albums, artist discographies, and music videos. This GUI is based on the method of this [CLI Tool](https://github.com/zhaarey/apple-music-downloader). For music videos and AAC LC 256, you only need a token and do not need to install the wrapper. The wrapper is required for ALAC, Atmos, AAC Binaural, and Downmix formats.
 Some browsers may block the download, flagging the zip file as harmful, which is a false positive. You can also download it from [Telegram](https://t.me/apmyx/2).
 The file contains no malicious scripts. The warning appears because it is not signed. You can safely ignore it and select 'Run Anyway' when opening the .exe.
 
@@ -36,7 +36,14 @@ Download complete artist discographies with one click.
 
 You need an **active Apple Music subscription** to download music.
 
-### Getting Your Media User Token
+### Getting Your Media User Token Using Dev Tools
+
+1.Open the Apple Music website and log in with your subscription account.
+2.Open developer tools (usually Ctrl+Shift+I) and navigate to the Application tab. If the tab is not visible, click the ">>" symbol in the dev tools tabs to find it in the dropdown menu.
+3.In the Application tab, expand the Storage section and select Cookies, then click on https://music.apple.com.
+4.Find the cookie named media-user-token and copy its value.
+
+### Getting Your Media User Token using Cookies export. 
 
 You need a **media user token** for downloading AAC LC quality and lyrics.
 
