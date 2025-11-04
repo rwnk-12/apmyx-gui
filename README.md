@@ -5,7 +5,7 @@ A GUI based Apple Music downloader for Atmos, Lossless, and AAC formats for wind
 
 ## About
 
-Easily download your playlists, songs, albums, artist discographies, and music videos. This GUI is based on the method of this [CLI Tool](https://github.com/zhaarey/apple-music-downloader). For music videos and AAC LC 256, you only need a token and do not need to install the wrapper. The wrapper is required for ALAC, Atmos, AAC Binaural, and Downmix formats.
+Easily download your playlists, songs, albums, artist discographies, and music videos. For music videos and AAC LC 256, you only need a token and do not need to install the wrapper. The wrapper is required for ALAC, Atmos, AAC Binaural, and Downmix formats.
 Some browsers may block the download, flagging the zip file as harmful, which is a false positive. You can also download it from [Telegram](https://t.me/apmyx/2).
 The file contains no malicious scripts. The warning appears because it is not signed. You can safely ignore it and select 'Run Anyway' when opening the .exe.
 
