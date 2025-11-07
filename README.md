@@ -1,6 +1,6 @@
 # apmyx
 
-A GUI based Apple Music downloader for Atmos, Lossless, and AAC formats for windows. (needs to be built from source for MacOS, Linux)
+A GUI based Apple Music downloader for Atmos, Lossless, and AAC formats (needs to be built from source for MacOS, Linux).
 **Get the latest Windows app from [releases](https://github.com/rwnk-12/apmyx-gui/releases)**
 
 ## About
