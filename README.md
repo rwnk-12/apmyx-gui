@@ -251,5 +251,4 @@ For issues or questions, please open an issue on GitHub.
 ## References
 * [zhaarey/apple-music-downloader](https://github.com/zhaarey/apple-music-downloader)
 * [zhaarey/wrapper](https://github.com/zhaarey/wrapper)
-* [glomatico/gamdl](https://github.com/glomatico/gamdl)
 * [itouakirai/apple-music-jshook-script](https://github.com/itouakirai/apple-music-jshook-script)
