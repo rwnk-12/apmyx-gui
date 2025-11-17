@@ -5,7 +5,11 @@ A GUI based Apple Music downloader for Atmos, Lossless, and AAC formats (needs t
 
 ## About
 
-Easily download your playlists, songs, albums, artist discographies up to Lossless 24B/192kHz, and music videos up to 4K. For music videos, Lyrics downloads and AAC LC 256, you only need a **[token](https://github.com/rwnk-12/apmyx-gui/blob/master/README.md#getting-your-media-user-token-using-dev-tools)** and do not need to install the **[wrapper](https://github.com/rwnk-12/apmyx-gui/blob/master/README.md#wrapper-installation-windows)**. The **[wrapper](https://github.com/rwnk-12/apmyx-gui/blob/master/README.md#wrapper-installation-windows)** is required for ALAC, Atmos, AAC Binaural, and Downmix formats.
+Easily download your playlists, songs, albums, artist discographies up to Lossless 24B/192kHz, and music videos up to 4K. 
+
+For music videos, lyrics downloads, and AAC LC 256, you only need a **[token](https://github.com/rwnk-12/apmyx-gui/blob/master/README.md#getting-your-media-user-token-using-dev-tools)** and do not need to install the wrapper. 
+
+The wrapper is required for ALAC, Atmos, AAC Binaural, and Downmix formats. To install the wrapper, follow the guide here for **[MacOS](https://github.com/rwnk-12/apmyx-gui?tab=readme-ov-file#wrapper-installation-macos)** or **[Windows](https://github.com/rwnk-12/apmyx-gui?tab=readme-ov-file#wrapper-installation-windows)**.
 
 Some browsers may block the download and flag the zip file as harmful due to a false positive. You can also download it from [Telegram](https://t.me/apmyx/10). The file contains no malicious scripts. The warning appears because it is not signed. You can safely ignore it and select "Run Anyway" when opening the .exe file.
 
@@ -239,7 +243,7 @@ python main.py
 
 ---
 
-> This guide was created by [itouakira](https://github.com/itouakirai/docs). If you encounter any issues, please open an issue for them [here](https://github.com/itouakirai/docs/issues/new?title=Issue%20on%20docs&body=Path:%20/amdl/quickstart/macos).
+> This guide was created by [itouakirai](https://github.com/itouakirai/docs). If you encounter any issues, please open an issue for them [here](https://github.com/itouakirai/docs/issues/new?title=Issue%20on%20docs&body=Path:%20/amdl/quickstart/macos).
 
 # Building from Source
 
