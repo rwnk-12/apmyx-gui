@@ -230,10 +230,6 @@ Keep this terminal window open while using apmyx.
 
 ### Step 4: Start apmyx
 
-Download the app for MacOS from [releases](https://github.com/rwnk-12/apmyx-gui/releases) and open it.
-
-**OR**
-
 Run from source code:
 
 ```bash
