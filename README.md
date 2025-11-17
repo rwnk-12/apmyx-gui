@@ -8,7 +8,7 @@ A GUI-based Apple Music downloader for Atmos, Lossless, and AAC formats (needs t
 
 Easily download your playlists, songs, albums, artist discographies up to Lossless 24-bit/192kHz, and music videos up to 4K. 
 
-For music videos, lyrics downloads, and AAC LC 256, you only need a **[token](https://github.com/rwnk-12/apmyx-gui/blob/master/README.md#getting-your-media-user-token-using-dev-tools)** and do not need to install the wrapper. 
+For music videos, lyrics downloads, and AAC LC 256, you only need a **[token](https://github.com/rwnk-12/apmyx-gui/blob/master/README.md#getting-your-media-user-token)** and do not need to install the wrapper. 
 
 The wrapper is required for ALAC, Atmos, AAC Binaural, and Downmix formats. To install the wrapper, follow the guide for **[MacOS](https://github.com/rwnk-12/apmyx-gui?tab=readme-ov-file#wrapper-installation-macos)** or **[Windows](https://github.com/rwnk-12/apmyx-gui?tab=readme-ov-file#wrapper-installation-windows)**.
 
