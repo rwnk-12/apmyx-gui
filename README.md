@@ -177,6 +177,70 @@ pip install -r requirements.txt
 cd src
 python main.py
 ```
+
+## Wrapper Installation (MacOS)
+
+---
+
+### Installation
+
+#### Step 1
+Open the terminal and run the following command:
+```bash
+brew install go gpac git docker && git clone https://github.com/zhaarey/apple-music-downloader.git
+```
+
+#### Step 2
+Use the Docker command to log in to the wrapper. Replace `username:password` in the command with your Apple Music account credentials (**Subscription required**).
+```bash
+docker run -v ./rootfs/data:/app/rootfs/data -e args="-L username:password -F" --rm ghcr.io/itouakirai/wrapper:x86
+```
+
+**Note:** If you have enabled 2FA verification:
+1. Wait to receive the verification code
+2. Open a new terminal and follow the prompts to enter the command
+3. If the response is `type 6`, the login is successful
+4. Close all terminal windows
+
+---
+
+### Usage
+
+#### Step 1: Start the Wrapper
+Open the terminal and execute the wrapper run command:
+```bash
+docker run -v ./rootfs/data:/app/rootfs/data -p 10020:10020 -p 20020:20020 -e args="-M 20020 -H 0.0.0.0" --rm ghcr.io/itouakirai/wrapper:x86
+```
+
+Keep this terminal window open while using the downloader.
+
+#### Step 2: Start the GUI
+
+Download the app for Windows from [releases](https://github.com/rwnk-12/apmyx-gui/releases) and extract it, then open `apmyx.exe`
+
+**OR**
+
+Run from source code:
+```bash
+git clone https://github.com/rwnk-12/apmyx-gui.git
+cd apmyx-gui
+pip install -r requirements.txt
+cd src
+python main.py
+```
+
+---
+
+## Requirements
+- Apple Music subscription
+- Docker installed
+- Go, gpac, and git installed (for wrapper)
+- Python 3.x (if running from source)
+
+---
+
+> This guide was created by [itouakira](https://github.com/itouakirai/docs). If you encounter any issues, please open an issue for them [here](https://github.com/itouakirai/docs/issues/new?title=Issue%20on%20docs&body=Path:%20/amdl/quickstart/macos).
+
 # Building from Source
 
 For developers, contributors, or users on macOS and Linux, you can run the application directly from the source code.
