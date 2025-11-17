@@ -14,6 +14,8 @@ The wrapper is required for ALAC, Atmos, AAC Binaural, and Downmix formats. To i
 
 **Note:** Some browsers may block the download and flag the zip file as harmful due to a false positive. You can also download it from [Telegram](https://t.me/apmyx/10). The file contains no malicious scripts. The warning appears because it is not signed. You can safely ignore it and select "Run Anyway" when opening the .exe file.
 
+> **Linux:** If you know how to install the wrapper on Linux, please consider contributing by opening a pull request with an installation guide.
+
 ## Features
 
 ### Easy Search
@@ -204,7 +206,7 @@ brew install go gpac git docker
 
 ### Step 2: Login to Wrapper
 
-Use the Docker command to log in to the wrapper. Replace `username:password` with your Apple Music account credentials (**Subscription required**).
+Use the Docker command to log in to the wrapper. Replace `username:password` with your Apple Music account credentials (**Subscription required** , username = email).
 
 ```bash
 docker run -v ./rootfs/data:/app/rootfs/data -e args="-L username:password -F" --rm ghcr.io/itouakirai/wrapper:x86
