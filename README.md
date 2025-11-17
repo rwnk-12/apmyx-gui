@@ -191,7 +191,7 @@ python main.py
 #### Step 1
 Open the terminal and run the following command:
 ```bash
-brew install go gpac git docker && git clone https://github.com/zhaarey/apple-music-downloader.git
+brew install go gpac git docker
 ```
 
 #### Step 2
