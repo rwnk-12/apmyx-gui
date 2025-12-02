@@ -24,7 +24,7 @@ The wrapper is required for ALAC, Atmos, AAC Binaural, and Downmix formats. To i
 Search for your favorite songs and artists directly in the app.
 
 ### Quality Selection
-<img width="1919" height="978" alt="quality" src="https://github.com/user-attachments/assets/e0afdeb6-9bf7-4dd0-bc61-18114841594b" />
+<img width="1918" height="1021" alt="quality" src="https://github.com/user-attachments/assets/49b57177-2e3c-403a-80fa-4b97734a84f6" />
 
 Check available audio qualities directly in the GUI before downloading.
 
