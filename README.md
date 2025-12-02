@@ -12,7 +12,6 @@ For music videos, lyrics downloads, and AAC LC 256, you only need a **[token](ht
 
 The wrapper is required for ALAC, Atmos, AAC Binaural, and Downmix formats. To install the wrapper, follow the guide for **[MacOS](https://github.com/rwnk-12/apmyx-gui?tab=readme-ov-file#wrapper-installation-macos)** or **[Windows](https://github.com/rwnk-12/apmyx-gui?tab=readme-ov-file#wrapper-installation-windows)**.
 
-**Note:** Some browsers may block the download and flag the zip file as harmful due to a false positive. You can also download it from [Telegram](https://t.me/apmyx/10). The file contains no malicious scripts. The warning appears because it is not signed. You can safely ignore it and select "Run Anyway" when opening the .exe file.
 
 > **Linux:** If you know how to install the wrapper on Linux, please consider contributing by opening a pull request with an installation guide.
 
