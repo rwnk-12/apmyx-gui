@@ -1,36 +1,30 @@
 package runv3
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
-	"fmt"
-	"path/filepath"
-
-	"github.com/gospider007/requests"
-	"google.golang.org/protobuf/proto"
-
-	// "log/slog"
-	cdm "main/utils/runv3/cdm"
-	key "main/utils/runv3/key"
-	"os"
-
-	"bytes"
-	"errors"
-	"io"
-
-	"github.com/Eyevinn/mp4ff/mp4"
-
-	//"io/ioutil"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/Eyevinn/mp4ff/mp4"
+	"github.com/go-resty/resty/v2"
 	"github.com/grafov/m3u8"
 	"github.com/schollz/progressbar/v3"
+	"google.golang.org/protobuf/proto"
+
+	cdm "main/utils/runv3/cdm"
+	key "main/utils/runv3/key"
 )
 
 type PlaybackLicense struct {
@@ -58,45 +52,45 @@ func getPSSH(contentId string, kidBase64 string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal WidevineCencHeader: %v", err)
 	}
-	
+
 	widevineCenc = append([]byte("0123456789abcdef0123456789abcdef"), widevineCenc...)
 	pssh := base64.StdEncoding.EncodeToString(widevineCenc)
 	return pssh, nil
 }
-func BeforeRequest(cl *requests.Client, preCtx context.Context, method string, href string, options ...requests.RequestOption) (resp *requests.Response, err error) {
-	data := options[0].Data
+
+func BeforeRequest(cl *resty.Client, ctx context.Context, method string, url string, body any) (*resty.Response, error) {
+	reqBytes, ok := body.([]byte)
+	if !ok {
+		return nil, fmt.Errorf("request body is not bytes")
+	}
 	jsondata := map[string]interface{}{
-		"challenge":      base64.StdEncoding.EncodeToString(data.([]byte)),
+		"challenge":      base64.StdEncoding.EncodeToString(reqBytes),
 		"key-system":     "com.widevine.alpha",
-		"uri":            "data:;base64," + preCtx.Value("pssh").(string),
-		"adamId":         preCtx.Value("adamId").(string),
+		"uri":            "data:;base64," + ctx.Value("pssh").(string),
+		"adamId":         ctx.Value("adamId").(string),
 		"isLibrary":      false,
 		"user-initiated": true,
 	}
-	options[0].Data = nil
-	options[0].Json = jsondata
-	resp, err = cl.Request(preCtx, method, href, options...)
-	if err != nil {
-		fmt.Println(err)
-	}
 
-	return
+	return cl.R().SetContext(ctx).SetBody(jsondata).Post(url)
 }
-func AfterRequest(Response *requests.Response) ([]byte, error) {
-	var ResponseData PlaybackLicense
-	_, err := Response.Json(&ResponseData)
+
+func AfterRequest(resp *resty.Response) ([]byte, error) {
+	var responseData PlaybackLicense
+	err := json.Unmarshal(resp.Body(), &responseData)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse response: %v", err)
 	}
-	if ResponseData.ErrorCode != 0 || ResponseData.Status != 0 {
-		return nil, fmt.Errorf("error code: %d", ResponseData.ErrorCode)
+	if responseData.ErrorCode != 0 || responseData.Status != 0 {
+		return nil, fmt.Errorf("error code: %d", responseData.ErrorCode)
 	}
-	License, err := base64.StdEncoding.DecodeString(ResponseData.License)
+	license, err := base64.StdEncoding.DecodeString(responseData.License)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode license: %v", err)
 	}
-	return License, nil
+	return license, nil
 }
+
 func GetWebplayback(adamId string, authtoken string, mutoken string, mvmode bool) (string, string, error) {
 	url := "https://play.music.apple.com/WebObjects/MZPlay.woa/wa/webPlayback"
 	postData := map[string]string{
@@ -118,17 +112,13 @@ func GetWebplayback(adamId string, authtoken string, mutoken string, mvmode bool
 	req.Header.Set("Referer", "https://music.apple.com/")
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", authtoken))
 	req.Header.Set("x-apple-music-user-token", mutoken)
-	// 创建 HTTP 客户端
-	//client := &http.Client{}
+
 	resp, err := http.DefaultClient.Do(req)
-	// 发送请求
-	//resp, err := client.Do(req)
 	if err != nil {
 		fmt.Println("Error sending request:", err)
 		return "", "", err
 	}
 	defer resp.Body.Close()
-	//fmt.Println("Response Status:", resp.Status)
 	obj := new(Songlist)
 	err = json.NewDecoder(resp.Body).Decode(&obj)
 	if err != nil {
@@ -139,7 +129,6 @@ func GetWebplayback(adamId string, authtoken string, mutoken string, mvmode bool
 		if mvmode {
 			return obj.List[0].HlsPlaylistUrl, "", nil
 		}
-		// 遍历 Assets
 		for i := range obj.List[0].Assets {
 			if obj.List[0].Assets[i].Flavor == "28:ctrp256" {
 				kidBase64, fileurl, err := extractKidBase64(obj.List[0].Assets[i].URL, false)
@@ -192,21 +181,17 @@ func extractKidBase64(b string, mvmode bool) (string, string, error) {
 			split := strings.Split(mediaPlaylist.Key.URI, ",")
 			kidbase64 = split[1]
 			lastSlashIndex := strings.LastIndex(b, "/")
-			
+
 			urlBuilder.WriteString(b[:lastSlashIndex])
 			urlBuilder.WriteString("/")
 			urlBuilder.WriteString(mediaPlaylist.Map.URI)
-			//fileurl = b[:lastSlashIndex] + "/" + mediaPlaylist.Map.URI
-			//fmt.Println("Extracted URI:", mediaPlaylist.Map.URI)
 			if mvmode {
 				for _, segment := range mediaPlaylist.Segments {
 					if segment != nil {
-						//fmt.Println("Extracted URI:", segment.URI)
 						urlBuilder.WriteString(";")
 						urlBuilder.WriteString(b[:lastSlashIndex])
 						urlBuilder.WriteString("/")
 						urlBuilder.WriteString(segment.URI)
-						//fileurl = fileurl + ";" + b[:lastSlashIndex] + "/" + segment.URI
 					}
 				}
 			}
@@ -247,7 +232,7 @@ func extsong(b string) bytes.Buffer {
 	return buffer
 }
 func Run(adamId string, trackpath string, authtoken string, mutoken string, mvmode bool) (string, error) {
-	var keystr string //for mv key
+	var keystr string
 	var fileurl string
 	var kidBase64 string
 	var err error
@@ -266,33 +251,32 @@ func Run(adamId string, trackpath string, authtoken string, mutoken string, mvmo
 	ctx = context.WithValue(ctx, "pssh", kidBase64)
 	ctx = context.WithValue(ctx, "adamId", adamId)
 	pssh, err := getPSSH("", kidBase64)
-	//fmt.Println(pssh)
 	if err != nil {
 		fmt.Println(err)
 		return "", err
 	}
-	headers := map[string]interface{}{
+
+	client := resty.New()
+	client.SetHeaders(map[string]string{
 		"authorization":            "Bearer " + authtoken,
 		"x-apple-music-user-token": mutoken,
-	}
-	client, _ := requests.NewClient(nil, requests.ClientOption{
-		Headers: headers,
 	})
-	key := key.Key{
+
+	k := key.Key{
 		ReqCli:        client,
 		BeforeRequest: BeforeRequest,
 		AfterRequest:  AfterRequest,
 	}
-	key.CdmInit()
+	k.CdmInit()
 	var keybt []byte
 	if strings.Contains(adamId, "ra.") {
-		keystr, keybt, err = key.GetKey(ctx, "https://play.itunes.apple.com/WebObjects/MZPlay.woa/web/radio/versions/1/license", pssh, nil)
+		keystr, keybt, err = k.GetKey(ctx, "https://play.itunes.apple.com/WebObjects/MZPlay.woa/web/radio/versions/1/license", pssh, nil)
 		if err != nil {
 			fmt.Println(err)
 			return "", err
 		}
 	} else {
-		keystr, keybt, err = key.GetKey(ctx, "https://play.itunes.apple.com/WebObjects/MZPlay.woa/wa/acquireWebPlaybackLicense", pssh, nil)
+		keystr, keybt, err = k.GetKey(ctx, "https://play.itunes.apple.com/WebObjects/MZPlay.woa/wa/acquireWebPlaybackLicense", pssh, nil)
 		if err != nil {
 			fmt.Println(err)
 			return "", err
@@ -304,7 +288,6 @@ func Run(adamId string, trackpath string, authtoken string, mutoken string, mvmo
 	}
 	body := extsong(fileurl)
 	fmt.Print("Downloaded\n")
-	//bodyReader := bytes.NewReader(body)
 	var buffer bytes.Buffer
 
 	err = DecryptMP4(&body, keybt, &buffer)
@@ -314,7 +297,6 @@ func Run(adamId string, trackpath string, authtoken string, mutoken string, mvmo
 	} else {
 		fmt.Print("Decrypted\n")
 	}
-	// create output file
 	ofh, err := os.Create(trackpath)
 	if err != nil {
 		fmt.Printf("创建文件失败: %v\n", err)
@@ -417,7 +399,6 @@ func fileWriter(wg *sync.WaitGroup, segmentsChan <-chan Segment, outputFile io.W
 
 func ProgressAggregator(wg *sync.WaitGroup, done chan struct{}, videoBytesDownloaded, audioBytesDownloaded, totalVideoBytes, totalAudioBytes *atomic.Int64, progressCallback func(float64)) {
 	defer wg.Done()
-	// OPTIMIZATION: Reduced from 200ms to 500ms to decrease overhead
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 	lastEmittedPercent := -1
@@ -431,7 +412,6 @@ func ProgressAggregator(wg *sync.WaitGroup, done chan struct{}, videoBytesDownlo
 			vTotal := totalVideoBytes.Load()
 			aTotal := totalAudioBytes.Load()
 
-			// Skip update if totals aren't known yet
 			if vTotal == 0 && aTotal == 0 {
 				continue
 			}
@@ -445,11 +425,9 @@ func ProgressAggregator(wg *sync.WaitGroup, done chan struct{}, videoBytesDownlo
 				aPercent = float64(aDownloaded) / float64(aTotal)
 			}
 
-			// Scale to 90% for download phase (reserve 90-100% for remuxing)
 			totalPercent := ((vPercent * 0.5) + (aPercent * 0.4)) * 0.9
 			currentPercentInt := int(totalPercent * 100)
 
-			// Only emit if changed by at least 1%
 			if currentPercentInt > lastEmittedPercent {
 				progressCallback(totalPercent)
 				lastEmittedPercent = currentPercentInt
