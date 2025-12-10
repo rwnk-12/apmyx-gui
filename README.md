@@ -319,4 +319,4 @@ For issues or questions, please [open an issue on GitHub](https://github.com/rwn
 * [zhaarey/apple-music-downloader](https://github.com/zhaarey/apple-music-downloader)
 * [zhaarey/wrapper](https://github.com/zhaarey/wrapper)
 * [itouakirai/apple-music-jshook-script](https://github.com/itouakirai/apple-music-jshook-script)
-[WorldObservationLog/Wrapper](https://github.com/WorldObservationLog/wrapper)
+*[WorldObservationLog/Wrapper](https://github.com/WorldObservationLog/wrapper)
