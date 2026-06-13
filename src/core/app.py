@@ -810,7 +810,7 @@ class AppController(QObject):
                     js_url = f"https://music.apple.com{match.group(0)}"
                     js_res = self.session.get(js_url, timeout=20)
                     js_res.raise_for_status()
-                    token_match = re.search(r'eyJh[a-zA-Z0-9\._-]+', js_res.text)
+                    token_match = re.search(r'eyJ[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+', js_res.text)
                     if not token_match: raise ValueError("Could not find bearer token.")
                     self.dev_token = token_match.group(0)
                     logging.info("Successfully fetched and cached new developer token.")
