@@ -1858,20 +1858,16 @@ func writeMP4Tags(track *task.Track, lrc string, discTrackCounts map[int]int) er
 	}
 
 	if track.PreType == "albums" {
-		albumID, err := strconv.ParseUint(track.PreID, 10, 32)
-		if err != nil {
-			return err
-		}
+	    if albumID, err := strconv.ParseUint(track.PreID, 10, 32); err == nil {
 		t.ItunesAlbumID = int32(albumID)
-	}
+	    }
+       }
 
 	if len(track.Resp.Relationships.Artists.Data) > 0 {
-		artistID, err := strconv.ParseUint(track.Resp.Relationships.Artists.Data[0].ID, 10, 32)
-		if err != nil {
-			return err
-		}
+	    if artistID, err := strconv.ParseUint(track.Resp.Relationships.Artists.Data[0].ID, 10, 32); err == nil {
 		t.ItunesArtistID = int32(artistID)
-	}
+	    }
+       }
 
 	if (track.PreType == "playlists" || track.PreType == "stations") && !Config.UseSongInfoForPlaylist {
 		t.DiscNumber = 1
