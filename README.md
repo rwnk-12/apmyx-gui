@@ -1,4 +1,4 @@
-It's just an updated fork I created, a derivative of rwnk-12 original code; all credit belongs to him for creating it from scratch.
+It's just an updated fork I created, a derivative of @rwnk-12 original code; all credit belongs to him for creating it from scratch.
 # apmyx
 
 A GUI-based Apple Music downloader for Atmos, Lossless, and AAC formats (needs to be built from source for MacOS, Linux).
