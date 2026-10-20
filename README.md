@@ -174,4 +174,3 @@ For issues or questions, [open an issue on GitHub](https://github.com/rwnk-12/ap
 - [zhaarey/apple-music-downloader](https://github.com/zhaarey/apple-music-downloader)
 - [zhaarey/wrapper](https://github.com/zhaarey/wrapper)
 - [itouakirai/go-mp4tag](https://github.com/itouakirai/go-mp4tag)
-- [itouakirai/apple-music-jshook-script](https://github.com/itouakirai/apple-music-jshook-script)
