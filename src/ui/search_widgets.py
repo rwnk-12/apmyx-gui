@@ -1,4 +1,3 @@
-import logging
 import os
 import sys
 import urllib.request
@@ -9,7 +8,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QCheckBox, QStyleOptionButton, QStyle, QApplication
 )
 from PyQt6.QtCore import pyqtSignal, pyqtSlot, QRunnable, QObject, Qt, QPointF, QEvent, QTimer, QRect
-from PyQt6.QtGui import QPixmap, QBitmap, QPainter, QColor, QPen, QPainterPath
+from PyQt6.QtGui import QBitmap, QPainter, QColor, QPen, QPainterPath
 
 def round_pixmap(pixmap, radius):
     if pixmap.isNull():

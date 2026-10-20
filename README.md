@@ -8,8 +8,11 @@ A GUI-based Apple Music downloader for Atmos, Lossless, and AAC formats (needs t
 
 Easily download playlists, songs, albums, and artist discographies up to Lossless 24-bit/192kHz, and music videos up to 4K.
 
-- **Music videos, lyrics, AAC LC 256** only need a [token](https://github.com/rwnk-12/apmyx-gui/blob/master/README.md#getting-your-media-user-token), no wrapper required.
-- **ALAC, Atmos, AAC Binaural, Downmix** require the wrapper. Setup guide for [MacOS](https://github.com/rwnk-12/apmyx-gui?tab=readme-ov-file#wrapper-installation-macos) / [Windows](https://github.com/rwnk-12/apmyx-gui?tab=readme-ov-file#wrapper-installation-windows). ([Additional MacOS guide](https://gist.github.com/mattneub/cd1d7890a5cc26e7e8053f019cb9cd54))
+- **ALAC, Atmos, AAC, and music videos** download through **Wrapper Lite**, the default wrapper. One launcher installs it, no WSL or Docker needed. Setup guide for [Windows](https://github.com/rwnk-12/apmyx-gui?tab=readme-ov-file#wrapper-installation-windows) / [MacOS](https://github.com/rwnk-12/apmyx-gui?tab=readme-ov-file#wrapper-installation-macos) / [Linux](https://github.com/rwnk-12/apmyx-gui?tab=readme-ov-file#wrapper-installation-linux).
+- **Wrapper v2 and Legacy Wrapper** are also supported if you run them yourself. See [Other Wrappers](https://github.com/rwnk-12/apmyx-gui?tab=readme-ov-file#other-wrappers).
+- A [media user token](https://github.com/rwnk-12/apmyx-gui?tab=readme-ov-file#getting-your-media-user-token) is optional. It is used as a lyrics fallback, and by the Legacy Wrapper for AAC LC and music videos.
+
+> apmyx is not affiliated with Apple Inc. It is built on publicly available open-source projects.
 
 ## Features
 
@@ -25,7 +28,7 @@ Easily download playlists, songs, albums, and artist discographies up to Lossles
 
 <img width="1917" height="955" alt="artist_page" src="https://github.com/user-attachments/assets/ee4fad29-8d22-4777-aafc-8a5b464a30ef" />
 
-**Lyrics Sync** - sync your music library with lyrics.
+**Lyrics Sync** - sync your music library with lyrics in LRC or TTML, with line or word timing and optional translation and pronunciation lines.
 
 <img width="1912" height="984" alt="lyrics" src="https://github.com/user-attachments/assets/e00c230e-d2e3-46f3-8a39-743ce4f79a9e" />
 
@@ -33,14 +36,15 @@ Easily download playlists, songs, albums, and artist discographies up to Lossles
 
 <img width="1919" height="946" alt="select" src="https://github.com/user-attachments/assets/87877732-7952-4e59-8ca4-a4121c91cf51" />
 
+**Wrapper Status** - the badge at the top shows which wrapper is connected. Start or stop Wrapper Lite from **Settings -> Wrapper**.
+
 ## Requirements
 
 - An **active Apple Music subscription**
-- [mp4box](https://gpac.io/downloads/gpac-nightly-builds/) - required for music video muxing and song/video tagging
-- [mp4decrypt](https://www.bento4.com/downloads/) - required for music video downloads
-- [FFmpeg](https://www.ffmpeg.org/download.html) - required for animated artwork
+- [FFmpeg](https://www.ffmpeg.org/download.html) - required for animated artwork and the ALAC integrity check
+- [mp4box](https://gpac.io/downloads/gpac-nightly-builds/) and [mp4decrypt](https://www.bento4.com/downloads/) - only needed for the Legacy Wrapper and some Wrapper v2 downloads
 
-Make sure all three tools are added to your system PATH. Restart your computer after doing so.
+Make sure these tools are added to your system PATH. Restart your computer after doing so.
 
 ## Getting Your Media User Token
 
@@ -60,77 +64,87 @@ Install [Get cookies.txt LOCALLY](https://chromewebstore.google.com/detail/get-c
 ## Installation
 
 1. Download the latest release from [Releases](https://github.com/rwnk-12/apmyx-gui/releases) and extract it.
-2. Run `apmyx.exe`.
-3. Enter your [media user token](https://github.com/rwnk-12/apmyx-gui?tab=readme-ov-file#getting-your-media-user-token) in settings.
+2. Install and sign in to Wrapper Lite once. See [Wrapper Installation (Windows)](https://github.com/rwnk-12/apmyx-gui?tab=readme-ov-file#wrapper-installation-windows).
+3. Run `apmyx.exe`. Wrapper Lite is selected by default at `http://127.0.0.1:12340`.
+4. Search for music or paste an Apple Music link, pick the quality, and download.
 
 ## Wrapper Installation (Windows)
 
-Only needed for **ALAC, Atmos, AAC Binaural, AAC Downmix**.
+Works on Windows 10 and 11 (x64). Nothing else needs to be installed.
 
-1. Download and extract [AMDL WSL1 ALL IN ONE.zip](https://github.com/itouakirai/apple-music-jshook-script/releases/download/wsa/AMDL-WSL1.ALL.IN.ONE.zip).
-2. Run `0-1 Install WSL1(need to reboot later).bat` and restart your computer.
-3. Run `0-2 Install Ubuntu-AMDL(only once).bat`.
-4. Open `1. Run decryptor (!!!need to replace username and password in this file).bat` in Notepad, replace `username:password` with your Apple Music credentials (enclose in quotes, e.g. `"email@example.com:password"`), save, and run it.
-5. Wait for `response type 6 and listening status` and keep this window open while using apmyx.
+1. Run `setup-wrapper-lite-qemu.cmd` from the apmyx folder.
+2. Enter your Apple ID email, password, and the verification code when prompted.
+3. Wait for `Wrapper Lite QEMU is ready at http://127.0.0.1:12340`. You can close the window, the wrapper keeps running in the background.
 
-Then download and run `apmyx.exe` from [releases](https://github.com/rwnk-12/apmyx-gui/releases), or run from source:
+After a restart, start it again with **Start Wrapper Lite** in **Settings -> Wrapper**, or run:
 
-```bash
-git clone https://github.com/rwnk-12/apmyx-gui.git
-cd apmyx-gui
-pip install -r requirements.txt
-cd src
-python main.py
+```bat
+setup-wrapper-lite-qemu.cmd -Action Start
 ```
+
+The launcher also supports `-Action Stop`, `-Action Login`, and `-Action Status`. Turning on **Windows Hypervisor Platform** in Windows Features makes it faster, but it is not required. If it fails to start, add `-Acceleration tcg`.
 
 ## Wrapper Installation (MacOS)
 
-Only needed for **ALAC, Atmos, AAC Binaural, AAC Downmix**.
+Works on Apple Silicon Macs. Intel Macs are not supported, use a hosted wrapper instead.
 
-### Step 1: Install Dependencies
+### Step 1: Install QEMU
 ```bash
-brew install go gpac git docker
+brew install qemu
 ```
 
-### Step 2: Login
-Replace `username:password` with your Apple Music credentials (username = email).
+### Step 2: Install and Sign In
+Enter your Apple ID email, password, and the verification code when prompted.
 ```bash
-docker run -v ./rootfs/data:/app/rootfs/data -e args="-L username:password -F" --rm ghcr.io/itouakirai/wrapper:x86
-```
-If 2FA is enabled, enter the verification code when prompted. A response of `type 6` means login was successful.
-
-### Step 3: Start the Wrapper
-Keep this window open while using apmyx.
-```bash
-docker run -v ./rootfs/data:/app/rootfs/data -p 10020:10020 -p 20020:20020 -e args="-M 20020 -H 0.0.0.0" --rm ghcr.io/itouakirai/wrapper:x86
+./setup-wrapper-lite-qemu.sh
 ```
 
-### Step 4: Start apmyx
+### Step 3: Start apmyx
 ```bash
 git clone https://github.com/rwnk-12/apmyx-gui.git
 cd apmyx-gui
 pip install -r requirements.txt
-cd src
-python main.py
+python scripts/build_backends.py
+python src/main.py
 ```
 
+After a restart, start the wrapper with **Start Wrapper Lite** in **Settings -> Wrapper**, or run `./setup-wrapper-lite-qemu.sh --action start`.
+
+## Wrapper Installation (Linux)
+
+Works on x86-64 and ARM64. Needs Python 3.8 or newer.
+
+```bash
+./setup-wrapper-lite-qemu.sh
+```
+
+Enter your Apple ID email, password, and the verification code when prompted. The wrapper uses KVM when `/dev/kvm` is available. The launcher also supports `--action start`, `stop`, `login`, and `status`.
+
 ---
 
-> Wrapper steps 1-3 are based on the guide by [itouakirai](https://github.com/itouakirai/docs). For wrapper issues, [open an issue here](https://github.com/itouakirai/docs/issues/new?title=Issue%20on%20docs&body=Path:%20/amdl/quickstart/macos). For another detailed MacOS guide, see [this gist](https://gist.github.com/mattneub/cd1d7890a5cc26e7e8053f019cb9cd54).
+> To sign in again, run the launcher with `-Action Login` (Windows) or `--action login` (MacOS, Linux). Your Apple ID and password are never saved, only the wrapper session is.
 
 ---
+
+## Other Wrappers
+
+Choose your wrapper in **Settings -> Wrapper**.
+
+| Wrapper | Setup | Default endpoints |
+| --- | --- | --- |
+| Wrapper Lite (default) | `setup-wrapper-lite-qemu.cmd` / `.sh` | `http://127.0.0.1:12340` |
+| Wrapper v2 | Run [wrapper-v2](https://github.com/glomatico/wrapper-v2) yourself | `http://127.0.0.1:80`, TCP `127.0.0.1:10020` |
+| Legacy Wrapper | Run [wrapper](https://github.com/zhaarey/wrapper) yourself | Decrypt `127.0.0.1:10020`, M3U8 `127.0.0.1:20020` |
+
+For a hosted wrapper, select Wrapper Lite and enter its HTTPS URL and **Wrapper API Key** in settings. Local wrappers need neither.
 
 ## Building from Source
 
-**Prerequisites:** Go 1.18+, Python 3.9+, FFmpeg, mp4box, mp4decrypt.
+**Prerequisites:** Python 3.12, Go 1.23.1+, Rust, FFmpeg.
 
 ```bash
 git clone https://github.com/rwnk-12/apmyx-gui.git
-cd apmyx-gui/scripts
-
-# Build Go backend
-chmod +x build_go.sh
-./build_go.sh
+cd apmyx-gui
 
 # Set up Python environment
 python -m venv venv
@@ -138,10 +152,14 @@ source venv/bin/activate        # macOS/Linux
 # .\venv\Scripts\activate       # Windows
 pip install -r requirements.txt
 
+# Build the backends
+python scripts/build_backends.py
+
 # Run the app
-cd src
-python main.py
+python src/main.py
 ```
+
+Use `python scripts/build_backends.py --bundle` to build the standalone backend bridge.
 
 ## Support
 
@@ -149,7 +167,11 @@ For issues or questions, [open an issue on GitHub](https://github.com/rwnk-12/ap
 
 ## Credits & References
 
+- [WorldObservationLog/AppleMusicDecrypt](https://github.com/WorldObservationLog/AppleMusicDecrypt)
+- [WorldObservationLog/Wrapper](https://github.com/WorldObservationLog/wrapper)
+- [glomatico/gamdl](https://github.com/glomatico/gamdl)
+- [glomatico/wrapper-v2](https://github.com/glomatico/wrapper-v2)
 - [zhaarey/apple-music-downloader](https://github.com/zhaarey/apple-music-downloader)
 - [zhaarey/wrapper](https://github.com/zhaarey/wrapper)
+- [itouakirai/go-mp4tag](https://github.com/itouakirai/go-mp4tag)
 - [itouakirai/apple-music-jshook-script](https://github.com/itouakirai/apple-music-jshook-script)
-- [WorldObservationLog/Wrapper](https://github.com/WorldObservationLog/wrapper)

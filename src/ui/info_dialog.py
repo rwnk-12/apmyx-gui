@@ -6,8 +6,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import (pyqtSignal, pyqtSlot, QThreadPool, Qt, QTimer, QPropertyAnimation, QEasingCurve, 
                           QObject, QEvent, QParallelAnimationGroup, QSize, pyqtProperty, QSequentialAnimationGroup,
                           QPauseAnimation)
-from PyQt6.QtGui import (QPixmap, QBitmap, QPainter, QColor, QLinearGradient, QFontMetrics, QPen, QFont,
-                         QPainterPath)
+from PyQt6.QtGui import QPixmap, QPainter, QColor, QLinearGradient, QFontMetrics, QFont, QPainterPath
 import logging
 import os
 from .search_widgets import ImageFetcher, round_pixmap, ClickableLabel
@@ -239,25 +238,6 @@ def _make_tag(text: str, bg="#555", fg="#fff"):
             min-height:20px; max-height:20px;
         }}""")
     lbl.setFixedHeight(20)
-    return lbl
-
-def _make_gold_tag(text: str):
-    lbl = QLabel(text)
-    lbl.setStyleSheet(f"""
-        QLabel {{
-            background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
-                stop:0 #E2C25D, stop:0.5 #C7A148, stop:1 #9D7A24);
-            color:#ffffff;
-            border:1px solid #755915; border-radius:9px; padding:2px 6px;
-            font: 9pt; font-weight:600;
-            min-height:20px; max-height:20px;
-        }}""")
-    lbl.setFixedHeight(20)
-    eff = QGraphicsDropShadowEffect(lbl)
-    eff.setBlurRadius(6)
-    eff.setColor(QColor(230, 190, 80, 120))
-    eff.setOffset(0, 0)
-    lbl.setGraphicsEffect(eff)
     return lbl
 
 def _create_quality_widget(text: str, is_hires: bool = False) -> QWidget:

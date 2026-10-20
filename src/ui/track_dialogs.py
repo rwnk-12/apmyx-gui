@@ -5,12 +5,12 @@ from PyQt6.QtWidgets import (
     QDialogButtonBox, QScrollArea, QFrame, QPushButton, QSizePolicy, QApplication,
     QGridLayout
 )
-from PyQt6.QtCore import pyqtSlot, QThreadPool, Qt, QTimer, pyqtSignal, QObject, QEvent, QRect, QSize
+from PyQt6.QtCore import pyqtSlot, QThreadPool, Qt, QTimer, pyqtSignal, QSize
 from PyQt6.QtGui import QPixmap, QFontMetrics, QFont, QPainter, QColor, QPaintEvent
 
 from .search_widgets import ImageFetcher, round_pixmap
 from .search_cards import PlayButton, resource_path, render_svg_tinted
-from .info_dialog import _ElideOnResizeFilter, ShimmerTag
+from .info_dialog import ShimmerTag
 from PyQt6 import sip
 
 def _create_track_quality_widget(text: str, is_hires: bool = False, is_atmos: bool = False) -> QWidget:
@@ -595,140 +595,3 @@ class TrackSelectionDialog(QDialog):
                 if track_id:
                     selected_ids.append(track_id)
         return selected_ids
-
-class TrackListingDialog(QDialog):
-    def __init__(self, album_data, parent=None):
-        super().__init__(parent)
-        self.album_data = album_data
-        album_attrs = self.album_data.get('albumData', {}).get('attributes', {})
-        self.setWindowTitle(f"Tracks: {album_attrs.get('name', 'Unknown Album')}")
-        self.setMinimumSize(560, 420)
-        self.main_layout = QVBoxLayout(self)
-        self.main_layout.setSpacing(10)
-        self.main_layout.setContentsMargins(15, 15, 15, 15)
-        header_widget = self._create_header(album_attrs)
-        self.main_layout.addWidget(header_widget)
-        line = QFrame()
-        line.setFrameShape(QFrame.Shape.HLine)
-        line.setFrameShadow(QFrame.Shadow.Sunken)
-        self.main_layout.addWidget(line)
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll_area.setStyleSheet("QScrollArea { border: none; }")
-        self.scroll_content = QWidget()
-        self.track_list_layout = QVBoxLayout(self.scroll_content)
-        self.track_list_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-        self.track_list_layout.setSpacing(2)
-        self.track_list_layout.setContentsMargins(5, 5, 5, 5)
-        scroll_area.setWidget(self.scroll_content)
-        self.main_layout.addWidget(scroll_area)
-        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        button_box.rejected.connect(self.reject)
-        self.main_layout.addWidget(button_box)
-        self.populate_tracks(self.album_data.get('tracks', []))
-        self._fetch_artwork(album_attrs)
-
-    def _create_header(self, album_attrs):
-        header_widget = QWidget()
-        header_layout = QHBoxLayout(header_widget)
-        header_layout.setContentsMargins(0, 0, 0, 0)
-        header_layout.setSpacing(15)
-        self.art_label = QLabel()
-        self.art_label.setFixedSize(120, 120)
-        self.art_label.setStyleSheet("background-color: transparent;")
-        self.art_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.art_label.setText("...")
-        header_layout.addWidget(self.art_label, 0, Qt.AlignmentFlag.AlignTop)
-        info_layout = QVBoxLayout()
-        info_layout.setSpacing(5)
-        title_label = MarqueeLabel(album_attrs.get('name', 'Unknown Album'), hover_to_scroll=False, always_scroll=True, step_px=1, interval_ms=20)
-        title_label.setWordWrap(False)
-        title_font = QFont()
-        title_font.setPointSize(14)
-        title_font.setBold(True)
-        title_label.setFont(title_font)
-        title_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        artist_label = QLabel(album_attrs.get('artistName', 'Unknown Artist'))
-        artist_font = QFont()
-        artist_font.setPointSize(10)
-        artist_label.setFont(artist_font)
-        artist_label.setStyleSheet("color: #aaa;")
-        artist_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        tracks = self.album_data.get('tracks', [])
-        total_duration_ms = sum(t.get('trackData', {}).get('attributes', {}).get('durationInMillis', 0) for t in tracks)
-        total_seconds = total_duration_ms // 1000
-        total_minutes = total_seconds // 60
-        genre_list = album_attrs.get('genreNames', [])
-        genre = genre_list[0] if genre_list else ''
-        track_count = len(tracks)
-        meta_text = f"{genre} • {track_count} tracks • {total_minutes}m"
-        meta_label = QLabel(meta_text)
-        meta_font = QFont()
-        meta_font.setPointSize(10)
-        meta_label.setFont(meta_font)
-        meta_label.setStyleSheet("color: #aaa;")
-        meta_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        info_layout.addWidget(title_label)
-        info_layout.addWidget(artist_label)
-        info_layout.addWidget(meta_label)
-        info_layout.addStretch()
-        header_layout.addLayout(info_layout, 1)
-        return header_widget
-
-    def _fetch_artwork(self, album_attrs):
-        artwork_url = album_attrs.get('artwork', {}).get('url', '').replace('{w}', '240').replace('{h}', '240')
-        if artwork_url:
-            self.worker = ImageFetcher(artwork_url).auto_cancel_on(self)
-            self.worker.signals.image_loaded.connect(self._set_artwork)
-            self.worker.signals.error.connect(self._on_artwork_error)
-            QThreadPool.globalInstance().start(self.worker)
-
-    @pyqtSlot(bytes)
-    def _set_artwork(self, image_data):
-        if image_data:
-            pixmap = QPixmap()
-            pixmap.loadFromData(image_data)
-            scaled = pixmap.scaled(self.art_label.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-            rounded = round_pixmap(scaled, 8)
-            self.art_label.setPixmap(rounded)
-
-    @pyqtSlot(str)
-    def _on_artwork_error(self, error_str: str):
-        self.art_label.setText("No Art")
-
-    def populate_tracks(self, tracks):
-        disc_numbers = {t.get('trackData', {}).get('attributes', {}).get('discNumber', 1) for t in tracks}
-        is_multi_disc = len(disc_numbers) > 1
-        current_disc = -1
-        for track_probe in tracks:
-            attrs = track_probe.get('trackData', {}).get('attributes', {})
-            disc_num = attrs.get('discNumber', 1)
-            if is_multi_disc and disc_num != current_disc:
-                disc_header = QLabel(f"Disc {disc_num}")
-                disc_header.setStyleSheet("font-size: 11pt; margin-top: 10px; margin-bottom: 5px; border-bottom: 1px solid #444; padding-bottom: 5px;")
-                disc_header.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-                self.track_list_layout.addWidget(disc_header)
-                current_disc = disc_num
-            track_widget = QWidget()
-            track_layout = QHBoxLayout(track_widget)
-            track_layout.setContentsMargins(5, 2, 5, 2)
-            track_layout.setSpacing(10)
-            track_num_label = QLabel(f"{attrs.get('trackNumber', 0):02d}")
-            track_num_label.setFixedWidth(36)
-            track_num_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            track_num_label.setStyleSheet("color: #aaa; font-size: 10pt;")
-            track_layout.addWidget(track_num_label)
-            title_label = MarqueeLabel(attrs.get('name', 'Unknown Track'), hover_to_scroll=True, always_scroll=False, step_px=1, interval_ms=20)
-            title_label.setStyleSheet("font-weight: bold; font-size: 10pt;")
-            title_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            track_layout.addWidget(title_label, 1)
-            duration_ms = attrs.get('durationInMillis', 0)
-            seconds = duration_ms // 1000
-            duration_str = f"{seconds // 60}:{seconds % 60:02d}"
-            duration_label = QLabel(duration_str)
-            duration_label.setStyleSheet("color: #aaa; font-size: 10pt;")
-            duration_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            duration_label.setFixedWidth(56)
-            track_layout.addWidget(duration_label)
-            self.track_list_layout.addWidget(track_widget)

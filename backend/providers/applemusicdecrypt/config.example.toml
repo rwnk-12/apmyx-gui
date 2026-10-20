@@ -1,0 +1,154 @@
+# DO NOT EDIT IT
+version = "0.2.0"
+
+[instance]
+# wrapper-lite HTTP instance URL (scheme is decided by `secure`)
+url = "127.0.0.1:12340"
+secure = false
+
+[localInstance]
+# Launch a local wrapper backend via QEMU.
+# This setting will overwrite instance setting.
+enable = false
+# Backend type:
+#   "manager" (default) = wrapper-manager-qemu, HTTP /login /logout,
+#                         wrapper-lite-compatible API, multi-account.
+#   "lite"              = wrapper-lite-qemu, single-account; the client's
+#                         login/logout commands are disabled.
+wrapperType = "manager"
+# Launcher binary ("" = auto-detect from PATH).
+#   manager: wrapper-manager-qemu(.exe) from WorldObservationLog/wrapper-manager v2
+#   lite:    wrapper-lite-qemu(.exe) from WorldObservationLog/wrapper
+launcherBin = ""
+# Host port forwarded to the guest's HTTP port.
+hostPort = 8080
+guestPort = 8080
+# Hardware accelerator ("" = auto-detect).
+hardwareAccelerator = ""
+memorySize = "1024M"
+smp = 2
+# Extra arguments forwarded to wrapper-lite only (one per line); "" = default.
+# Ignored when wrapperType = "manager".
+startArgs = ""
+
+[region]
+# The language of song metadata. Influence song title, author and other information.
+# Simplified Chinese: zh-Hans-CN, Tradidional Chinese(Hong Kong): zh-Hant-HK, Tradidional Chinese(Taiwan): zh-Hant-TW
+# English(British): en-GB, English(American): en-US, Japanese: ja, Korean: ko
+language = "zh-Hant-HK"
+# Pring warning when selected language does not exist on songs' region
+languageNotExistWarning = true
+
+[download]
+# Send request to Apple Music through proxy. Only support http and https protocol
+proxy = ""
+# Number of concurrent song downloads
+parallelNum = 4
+# Number of max running tasks
+maxRunningTasks = 128
+# Specify the IP address to use when downloading to speed up downloading
+# Taiwan: 17.253.117.201-17.253.117.203
+# Hongkong: 17.253.85.201-17.253.85.206, 17.253.87.195, 17.253.87.196, 17.253.87.201, 17.253.87.203
+# Japan: 17.253.69.200, 17.253.69.202, 17.253.75.201, 17.253.75.202
+appleCDNIP = ""
+# Decrypt samples while the media file is still downloading (边下边解).
+streamDecrypt = true
+# Number of samples decrypted per batch while streaming.
+decryptBatchSize = 256
+# Idle timeout (seconds) for the streaming CDN download; 0 disables the timeout.
+downloadTimeout = 60
+# Resume an interrupted download from where it stopped.
+resumeDownload = true
+# After enabling this feature, if the specified codec does not exist, the script will look for another codec to download
+codecAlternative = true
+# Priority to look for alternative codec
+# To download AAC lossy audio when lossless audio is not available, add "aac-legacy" to this configuration.
+codecPriority = ["alac", "ec3", "ac3", "aac"]
+# Encapsulate Atmos(ec-3/ac-3) as M4A and write the song metadata
+atmosConventToM4a = true
+# If the song integrity check fails, the task will fail and the song will not be saved.
+# Due to the possibility of source file corruption, open with caution.
+failedSongNotPassIntegrityCheck = false
+# Repair known Apple ALAC END-tag defects automatically after saving (default true).
+alacFix = true
+# Follow the Python Format (https://docs.python.org/3/library/string.html#formatstrings)
+# Write the audio information to the songNameFormat and playlistSongNameFormat
+# Only support alac codec
+# Available values: bit_depth, sample_rate, sample_rate_kHz, codec
+# This feature may slow down the speed of checking for existing songs
+audioInfoFormat = ""
+# Available values:
+# title, artist, album, album_artist, composer,
+# genre, created, track, tracknum, disk,
+# record_company, upc, isrc, copyright, codec, audio_info
+# song_id, album_id, album_created, total_tracks, total_disks
+songNameFormat = "{disk}-{tracknum:02d} {title}"
+# Available values:
+# title, artist, album, album_artist, composer,
+# genre, created, track, tracknum, disk, album_created
+# record_company, upc, isrc, copyright, codec, album_id
+# disk_total
+dirPathFormat = "downloads/{album_artist}/{album}"
+# Available values:
+# title, artist, album, album_artist, composer,
+# genre, created, track, tracknum, disk,
+# record_company, upc, isrc, copyright,
+# playlistName, playlistCuratorName, codec
+playlistDirPathFormat = "downloads/playlists/{playlistName}"
+# Available values:
+# title, artist, album, album_artist, composer,
+# genre, created, track, tracknum, disk,
+# record_company, upc, isrc, copyright, audio_info
+# playlistName, playlistCuratorName, playlistSongIndex, codec
+# song_id, album_id, album_created, total_tracks, total_disks
+playlistSongNameFormat = "{playlistSongIndex:02d}. {artist} - {title}"
+# Save lyrics as .lrc file
+saveLyrics = true
+# lrc or ttml
+# TTML format lyrics will be saved as .ttml suffix
+lyricsFormat = "lrc"
+# Save word-timed (karaoke) lyrics when available.
+lyricsSyllable = false
+# Only applies to lrc lyrics
+lyricsExtra = ["translation", "pronunciation"]
+# Reduce memory usage for large downloads and music videos.
+lowMemory = false
+# Force each finished file to be written to disk before continuing.
+fsync = true
+saveCover = true
+coverFormat = "jpg"
+coverSize = "5000x5000"
+# Limit the maximum bit rate and bit depth of audio files. Only valid for ALAC codec
+maxSampleRate = 192000
+maxBitDepth = 24
+# The command to be executed after the song is ripped successfully, passing in the filename parameter.
+# Example: "\"C:\\Program Files\\DAUM\\PotPlayer\\PotPlayerMini64.exe\" \"{filename}\""
+# Pay attention to escaping issues
+afterDownloaded = ""
+retryTime = 8
+maxWaitTime = 30
+
+[metadata]
+# Metadata to be written to the song
+# Available values:
+# title, artist, album, album_artist, composer,
+# genre, created, track, tracknum, disk,
+# record_company, upc, isrc, copyright,
+# lyrics, cover, ratings(rtng), song_id, album_id, artist_id
+embedMetadata = ["title", "artist", "album", "album_artist", "composer", "album_created",
+    "genre", "created", "tracknum", "disk", "lyrics", "cover", "copyright",
+    "record_company", "upc", "isrc", "rtng", "song_id", "album_id", "artist_id"]
+
+[mv]
+# Directory where music videos are saved
+saveDir = "downloads/music-videos"
+# Maximum video height to download (0 = best available)
+# 4K (2160) variants are PlayReady SL3000-only and are decrypted with
+# the PlayReady device in assets/pr_device.json
+maxHeight = 2160
+# MV audio rendition: atmos | ac3 | aac
+audioType = "atmos"
+# Concurrent segment downloads per MV stream
+segmentConcurrency = 4
+# Segment download retries
+segmentRetries = 3

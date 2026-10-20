@@ -6,10 +6,10 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QScrollArea,
     QLabel, QFrame, QTabWidget, QStackedWidget, QStatusBar,
-    QGraphicsDropShadowEffect, QSizePolicy, QStackedLayout
+    QGraphicsDropShadowEffect, QSizePolicy, QStackedLayout, QGraphicsOpacityEffect
 )
-from PyQt6.QtCore import Qt, QTimer, QSize
-from PyQt6.QtGui import QColor, QPainter, QPixmap, QIcon, QPen
+from PyQt6.QtCore import Qt, QTimer, QSize, QVariantAnimation, QEasingCurve, pyqtSignal
+from PyQt6.QtGui import QColor, QPainter, QPixmap, QIcon
 from PyQt6.QtSvg import QSvgRenderer
 from ..controls import SegmentedQualitySelector, AACQualitySelector, QueueToggleBar, AnnouncementBanner
 from ..utils import create_view_icon, render_svg_icon, resource_path
@@ -28,7 +28,6 @@ class BroadcastFetchTask(QRunnable):
     def run(self):
         import time
         try:
-            
             bypass_cache_url = f"{self.url}?t={int(time.time())}"
             resp = requests.get(bypass_cache_url, timeout=5)
             if resp.status_code == 200:
@@ -37,7 +36,49 @@ class BroadcastFetchTask(QRunnable):
                 self.signals.finished.emit({})
         except Exception:
             self.signals.finished.emit({})
-from ...search_widgets import SearchLineEdit, ClickableLabel
+
+
+class WrapperStatusSignals(QObject):
+    finished = pyqtSignal(str, bool, str)
+
+
+class WrapperStatusTask(QRunnable):
+    def run(self):
+        from core.bridge_client import request_for, run_request
+        try:
+            with open(config_path(), 'r', encoding='utf-8') as f:
+                config = yaml.safe_load(f) or {}
+        except FileNotFoundError:
+            config = {}
+        except Exception as exc:
+            self.signals.finished.emit('', False, str(exc))
+            return
+        request = None
+        try:
+            request = request_for('status', settings=config)
+            run_request(request)
+            self.signals.finished.emit(request['wrapper'], True, '')
+        except Exception as exc:
+            self.signals.finished.emit(request['wrapper'] if request else '', False, str(exc))
+
+    def __init__(self):
+        super().__init__()
+        self.signals = WrapperStatusSignals()
+
+
+WRAPPER_BADGE_COLORS = {'checking': '#9a9a9a', 'connected': '#3ecf6e', 'offline': '#fd576b'}
+WRAPPER_BADGE_ICONS = {
+    'checking': "<circle cx='12' cy='12' r='10'/><path d='M12 6v6l4 2'/>",
+    'connected': "<circle cx='12' cy='12' r='10'/><path d='m8 12 3 3 5-6'/>",
+    'offline': "<circle cx='12' cy='12' r='10'/><path d='M12 16v-4'/><path d='M12 8h.01'/>",
+}
+WRAPPER_CHECK_INTERVAL_MS = 30000
+
+
+def wrapper_label(key):
+    from backend.router.common import WRAPPERS
+    return WRAPPERS.get(key, 'Wrapper').replace(' (Default)', '')
+from ...search_widgets import SearchLineEdit
 from ...search_cards import SettingsButton
 from ...settings_page import SettingsPage
 from ...artwork_downloader_page import ArtworkDownloaderPage
@@ -46,6 +87,7 @@ from ...view_select import SelectionDropdown
 from ..player_bar import PlayerBar
 from ...queue_panel import QueuePanel
 from ...artist import ArtistDiscographyPage
+from core.config import config_path
 
 TAB_STYLESHEET = """
     QTabWidget::pane {
@@ -74,15 +116,65 @@ TAB_STYLESHEET = """
 """
 
 class UiSetupFeatures:
-    
     def on_quality_info_badge_clicked(self):
-        badge_text = self.quality_info_badge.text()
-        if "Token Required" in badge_text:
+        if getattr(self, '_wrapper_state', '') == 'offline':
             self.open_settings_page()
-            QTimer.singleShot(50, lambda: getattr(self.settings_page, "highlight_media_user_token", lambda: None)())
-        elif "Wrapper" in badge_text or "running" in badge_text.lower():
-            wrapper_url = "https://github.com/rwnk-12/apmyx-gui?tab=readme-ov-file#wrapper-installation-windows"
-            webbrowser.open(wrapper_url)
+        self._refresh_wrapper_status()
+
+    def _refresh_wrapper_status(self):
+        if getattr(self, '_wrapper_check_running', False):
+            return
+        self._wrapper_check_running = True
+        if getattr(self, '_wrapper_state', '') != 'connected':
+            self._set_wrapper_badge('checking', getattr(self, '_wrapper_key', ''), '')
+        task = WrapperStatusTask()
+        task.signals.finished.connect(self._on_wrapper_status)
+        self._wrapper_status_task = task
+        QThreadPool.globalInstance().start(task)
+
+    def _on_wrapper_status(self, wrapper, connected, message):
+        self._wrapper_check_running = False
+        self._set_wrapper_badge('connected' if connected else 'offline', wrapper, message)
+
+    def _set_wrapper_badge(self, state, wrapper, message):
+        badge = getattr(self, 'quality_info_badge', None)
+        if badge is None:
+            return
+        self._wrapper_state, self._wrapper_key = state, wrapper
+        name = wrapper_label(wrapper)
+        text, tooltip = {
+            'checking': (f"Checking {name}...", "Checking the selected wrapper."),
+            'connected': (f"{name} connected", f"{name} is running and ready. Click to check again."),
+            'offline': (f"{name} not connected", (message or f"{name} is not reachable.") + "\nClick to open Settings."),
+        }[state]
+        color = WRAPPER_BADGE_COLORS[state]
+        svg = (f"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='{color}' "
+               f"stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'>{WRAPPER_BADGE_ICONS[state]}</svg>")
+        renderer = QSvgRenderer(svg.encode())
+        pixmap = QPixmap(14, 14)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        renderer.render(painter)
+        painter.end()
+        badge.setIcon(QIcon(pixmap))
+        badge.setText(text)
+        badge.setToolTip(tooltip)
+        badge.setStyleSheet(f"""
+            #QualityInfoBadge {{
+                background-color: transparent;
+                border: 1px solid {color};
+                border-radius: 13px;
+                padding: 4px 10px;
+                color: {color};
+                font-size: 8pt;
+                font-weight: 600;
+            }}
+            #QualityInfoBadge:hover {{
+                background-color: rgba(255, 255, 255, 0.06);
+            }}
+        """)
+        badge.setMinimumWidth(badge.fontMetrics().horizontalAdvance(text) + 14 + 6 + 20)
+        badge.updateGeometry()
 
     def _on_broadcast_fetched(self, data: dict):
         msg = data.get("message", "")
@@ -214,11 +306,12 @@ class UiSetupFeatures:
         else:
             self._current_page_with_menu_signal = None
 
+    def _highlight_sidebar(self, selected):
+        for button in (self.home_button, self.settings_button_sidebar, self.artwork_button, self.lyrics_button):
+            button.setStyleSheet(self.selected_button_style if button is selected else self.sidebar_button_style)
+
     def open_settings_page(self):
-        self.home_button.setStyleSheet(self.sidebar_button_style)
-        self.artwork_button.setStyleSheet(self.sidebar_button_style)
-        self.lyrics_button.setStyleSheet(self.sidebar_button_style)
-        self.settings_button_sidebar.setStyleSheet(self.selected_button_style)
+        self._highlight_sidebar(self.settings_button_sidebar)
         try:
             self.page_stack.setCurrentWidget(self.settings_page)
         except RuntimeError:
@@ -227,10 +320,7 @@ class UiSetupFeatures:
             self.page_stack.setCurrentWidget(self.settings_page)
 
     def open_artwork_downloader_page(self):
-        self.home_button.setStyleSheet(self.sidebar_button_style)
-        self.settings_button_sidebar.setStyleSheet(self.sidebar_button_style)
-        self.lyrics_button.setStyleSheet(self.sidebar_button_style)
-        self.artwork_button.setStyleSheet(self.selected_button_style)
+        self._highlight_sidebar(self.artwork_button)
         try:
             self.page_stack.setCurrentWidget(self.artwork_page)
         except RuntimeError:
@@ -239,20 +329,13 @@ class UiSetupFeatures:
             self.page_stack.setCurrentWidget(self.artwork_page)
 
     def open_lyrics_downloader_page(self):
-        self.home_button.setStyleSheet(self.sidebar_button_style)
-        self.settings_button_sidebar.setStyleSheet(self.sidebar_button_style)
-        self.artwork_button.setStyleSheet(self.sidebar_button_style)
-        self.lyrics_button.setStyleSheet(self.selected_button_style)
+        self._highlight_sidebar(self.lyrics_button)
         try:
             self.page_stack.setCurrentWidget(self.lyrics_page)
         except RuntimeError:
             self.lyrics_page = LyricsDownloaderPage(self.controller, self.page_stack)
             self.page_stack.addWidget(self.lyrics_page)
             self.page_stack.setCurrentWidget(self.lyrics_page)
-
-    def back_from_settings(self):
-        if hasattr(self, "search_results_page"):
-            self.page_stack.setCurrentWidget(self.search_results_page)
 
     def _setup_sidebar(self):
         self.sidebar_width = 280
@@ -357,6 +440,7 @@ class UiSetupFeatures:
         self.lyrics_button.setStyleSheet(self.sidebar_button_style)
         sidebar_layout.addWidget(self.lyrics_button)
 
+
         sidebar_layout.addSpacing(20)
         
         svg_github = """<svg width="98" height="96" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M48.854 0C21.839 0 0 22 0 49.217c0 21.756 13.993 40.172 33.405 46.69 2.427.49 3.316-1.059 3.316-2.362 0-1.141-.08-5.052-.08-9.127-13.59 2.934-16.42-5.867-16.42-5.867-2.184-5.704-5.42-7.17-5.42-7.17-4.448-3.015.324-3.015.324-3.015 4.934.326 7.523 5.052 7.523 5.052 4.367 7.496 11.404 5.378 14.235 4.074.404-3.178 1.699-5.378 3.074-6.6-10.839-1.141-22.243-5.378-22.243-24.283 0-5.378 1.94-9.778 5.014-13.2-.485-1.222-2.184-6.275.486-13.038 0 0 4.125-1.304 13.426 5.052a46.97 46.97 0 0 1 12.214-1.63c4.125 0 8.33.571 12.213 1.63 9.302-6.356 13.427-5.052 13.427-5.052 2.67 6.763.97 11.816.485 13.038 3.155 3.422 5.015 7.822 5.015 13.2 0 18.905-11.404 23.06-22.324 24.283 1.78 1.548 3.316 4.481 3.316 9.126 0 6.6-.08 11.897-.08 13.526 0 1.304.89 2.853 3.316 2.364 19.412-6.52 33.405-24.935 33.405-46.691C97.707 22 75.788 0 48.854 0z" fill="currentColor"/></svg>"""
@@ -379,17 +463,15 @@ class UiSetupFeatures:
 
         sidebar_layout.addStretch()
 
-        version_label = QLabel("v1.0.2")
+        version = getattr(self.controller, "VERSION", "")
+        version_label = QLabel(f"v{version}" if isinstance(version, str) and version else "")
         version_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         version_label.setStyleSheet("color: #777; font-size: 8pt; background-color: transparent; padding-bottom: 5px;")
         sidebar_layout.addWidget(version_label)
 
     def _on_home_clicked(self):
         try:
-            self.settings_button_sidebar.setStyleSheet(self.sidebar_button_style)
-            self.artwork_button.setStyleSheet(self.sidebar_button_style)
-            self.lyrics_button.setStyleSheet(self.sidebar_button_style)
-            self.home_button.setStyleSheet(self.selected_button_style)
+            self._highlight_sidebar(self.home_button)
 
             current_widget = self.page_stack.currentWidget()
             search_page = getattr(self, "search_results_page", None)
@@ -447,69 +529,20 @@ class UiSetupFeatures:
         controls_layout.addWidget(self.aac_quality_selector, 0, Qt.AlignmentFlag.AlignLeft)
         self.aac_quality_selector.hide()
 
-        self.quality_info_badge = QPushButton("Wrapper Required", self.controls_widget)
+        self.quality_info_badge = QPushButton(self.controls_widget)
         self.quality_info_badge.setObjectName("QualityInfoBadge")
         self.quality_info_badge.setCursor(Qt.CursorShape.PointingHandCursor)
         self.quality_info_badge.setFlat(True)
-
-        svg_icon_data = b"""<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='#fd576b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'>
-<circle cx='12' cy='12' r='10'/><path d='M12 16v-4'/><path d='M12 8h.01'/></svg>"""
-        renderer = QSvgRenderer(svg_icon_data)
-        pixmap = QPixmap(14, 14)
-        pixmap.fill(Qt.GlobalColor.transparent)
-        p = QPainter(pixmap); renderer.render(p); p.end()
-        self.quality_info_badge.setIcon(QIcon(pixmap))
         self.quality_info_badge.setIconSize(QSize(14, 14))
-
-        self.quality_info_badge.setStyleSheet("""
-            #QualityInfoBadge {
-                background-color: transparent;
-                border: 1px solid #fd576b;
-                border-radius: 13px;
-                padding: 4px 10px;
-                color: #fd576b;
-                font-size: 8pt;
-                font-weight: 600;
-            }
-            #QualityInfoBadge:hover {
-                background-color: rgba(253, 87, 107, 0.10);
-            }
-        """)
-
         self.quality_info_badge.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
         self.quality_info_badge.setMinimumHeight(26)
-        
-        try:
-            with open('config.yaml', 'r') as f:
-                init_config = yaml.safe_load(f) or {}
-        except FileNotFoundError:
-            init_config = {}
-            
-        initial_quality = init_config.get('preferred-quality', 'ALAC').lower()
-        if 'aac' in initial_quality:
-            if init_config.get('media-user-token'):
-                self.quality_info_badge.setText("Token Filled")
-                self.quality_info_badge.setToolTip("Apple Music web token is configured.")
-            else:
-                self.quality_info_badge.setText("Token Required. Click here to set it up if not already configured.")
-                self.quality_info_badge.setToolTip("Apple Music web token required for AAC downloads")
-        else:
-            self.quality_info_badge.setText("Make Sure Wrapper is running")
-            self.quality_info_badge.setToolTip("Wrapper (decryptor) required for ALAC and Dolby Atmos downloads")
-
         controls_layout.addWidget(self.quality_info_badge, 0, Qt.AlignmentFlag.AlignLeft)
-
-        def _sync_badge_min_width():
-            fm = self.quality_info_badge.fontMetrics()
-            text_w = fm.horizontalAdvance(self.quality_info_badge.text())
-            icon_w = 14
-            spacing = 6
-            hpad = 10 * 2
-            self.quality_info_badge.setMinimumWidth(text_w + icon_w + spacing + hpad)
-
-        _sync_badge_min_width()
-
         self.quality_info_badge.clicked.connect(self.on_quality_info_badge_clicked)
+        self._wrapper_check_timer = QTimer(self)
+        self._wrapper_check_timer.setInterval(WRAPPER_CHECK_INTERVAL_MS)
+        self._wrapper_check_timer.timeout.connect(self._refresh_wrapper_status)
+        self._wrapper_check_timer.start()
+        self._refresh_wrapper_status()
 
         btns = self.quality_selector.buttons
         if len(btns) == 3:
@@ -567,85 +600,35 @@ class UiSetupFeatures:
             container.setUpdatesEnabled(True)
 
     def _create_search_placeholder(self):
-        placeholder = QWidget()
+        placeholder = IntroPage()
         layout = QVBoxLayout(placeholder)
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(20)
-
+        layout.setSpacing(18)
         layout.addStretch(1)
 
-        title = QLabel("Search or paste a link")
-        title.setStyleSheet("font-size: 32px; font-weight: bold; color: white;")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(title)
+        logo = QLabel()
+        pixmap = QPixmap(resource_path("src/assets/apmyx.png"))
+        if pixmap.isNull():
+            logo.setText("APMYX")
+            logo.setStyleSheet("font-size: 28pt; font-weight: bold; color: #f3576e; background: transparent;")
+        else:
+            logo.setPixmap(pixmap.scaledToHeight(84, Qt.TransformationMode.SmoothTransformation))
+            logo.setStyleSheet("background-color: #252526; border-radius: 16px; padding: 12px 22px;")
+        logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        subtitle = QLabel("Find your favorite songs, albums, and artists on Apple Music.")
-        subtitle.setStyleSheet("font-size: 16px; color: #999;")
-        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(subtitle)
-        
-        layout.addSpacing(30)
+        note = QLabel("Search Apple Music, or paste a link to get started.")
+        note.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        note.setStyleSheet("color: #9a9a9a; font-size: 11pt; background: transparent;")
 
-        guidance_container = QWidget()
-        guidance_container.setMaximumWidth(700)
-        guidance_layout = QVBoxLayout(guidance_container)
-        guidance_layout.setSpacing(15)
-        guidance_layout.setContentsMargins(0, 0, 0, 0)
+        disclaimer = QLabel("Not affiliated with Apple Inc.\nBuilt on publicly available open-source projects.")
+        disclaimer.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        disclaimer.setStyleSheet("color: #6f6f6f; font-size: 9pt; background: transparent;")
 
-        item1_layout = QHBoxLayout()
-        item1_layout.setSpacing(12)
-        
-        icon1_label = QLabel()
-        pixmap = QPixmap(20, 20)
-        pixmap.fill(Qt.GlobalColor.transparent)
-        painter = QPainter(pixmap)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        pen = QPen(QColor("#e0e0e0"), 2)
-        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-        painter.setPen(pen)
-        center_y, line_length, line_spacing = 10, 14, 5
-        start_x = (20 - line_length) / 2
-        painter.drawLine(int(start_x), int(center_y - line_spacing), int(start_x + line_length), int(center_y - line_spacing))
-        painter.drawLine(int(start_x), int(center_y), int(start_x + line_length), int(center_y))
-        painter.drawLine(int(start_x), int(center_y + line_spacing), int(start_x + line_length), int(center_y + line_spacing))
-        painter.end()
-        icon1_label.setPixmap(pixmap)
-        icon1_label.setFixedSize(20, 20)
-        
-        text1 = QLabel("Click the menu icon and go to Settings. Set your <b>media-user-token</b> to download high-quality AAC tracks.")
-        text1.setWordWrap(True)
-        text1.setStyleSheet("color: #999; font-size: 11pt;")
-        
-        item1_layout.addWidget(icon1_label, 0, Qt.AlignmentFlag.AlignTop)
-        item1_layout.addWidget(text1)
-        guidance_layout.addLayout(item1_layout)
-
-        text2 = QLabel("Make sure you have installed WSL and are running the wrapper for ALAC, Dolby Atmos, and other high-fidelity formats.")
-        text2.setWordWrap(True)
-        text2.setStyleSheet("color: #999; font-size: 11pt; padding-left: 32px;")
-        guidance_layout.addWidget(text2)
-
-        item3_layout = QHBoxLayout()
-        item3_layout.setSpacing(8)
-        item3_layout.setContentsMargins(32, 0, 0, 0)
-
-        github_svg = """<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-github-icon lucide-github"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg>"""
-        icon3_label = QLabel()
-        icon3_label.setPixmap(render_svg_icon(github_svg, "#fd576b", 16).pixmap(16, 16))
-        icon3_label.setFixedSize(16, 16)
-
-        text3 = QLabel("If you encounter any issues, please report them on GitHub.")
-        text3.setStyleSheet("color: #999; font-size: 11pt;")
-        
-        item3_layout.addWidget(icon3_label, 0, Qt.AlignmentFlag.AlignCenter)
-        item3_layout.addWidget(text3)
-        item3_layout.addStretch()
-        guidance_layout.addLayout(item3_layout)
-
-        layout.addWidget(guidance_container, 0, Qt.AlignmentFlag.AlignHCenter)
+        wrappers = [placeholder.reveal(widget) for widget in (logo, note, disclaimer)]
+        for wrapper in wrappers:
+            layout.addWidget(wrapper, 0, Qt.AlignmentFlag.AlignHCenter)
         layout.addStretch(2)
-        
+        placeholder.first_shown.connect(lambda: QTimer.singleShot(200, placeholder.play_intro))
         return placeholder
 
     def _setup_results_view(self):
@@ -727,3 +710,51 @@ class UiSetupFeatures:
             scroll_area.verticalScrollBar().valueChanged.connect(
                 lambda value, cat=category_key: self.on_scroll(value, cat)
             )
+
+
+class IntroPage(QWidget):
+    first_shown = pyqtSignal()
+    RISE = 28
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._shown = False
+        self._items = []
+        self._animations = []
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self._shown:
+            self._shown = True
+            self.first_shown.emit()
+
+    def reveal(self, widget):
+        wrapper = QWidget()
+        wrapper.setStyleSheet("background: transparent;")
+        box = QVBoxLayout(wrapper)
+        box.setContentsMargins(0, self.RISE, 0, 0)
+        box.setSpacing(0)
+        box.addWidget(widget, 0, Qt.AlignmentFlag.AlignHCenter)
+        effect = QGraphicsOpacityEffect(widget)
+        effect.setOpacity(0.0)
+        widget.setGraphicsEffect(effect)
+        self._items.append((wrapper, widget, effect))
+        return wrapper
+
+    def play_intro(self):
+        for index, (wrapper, widget, effect) in enumerate(self._items):
+            animation = QVariantAnimation(self)
+            animation.setStartValue(0.0)
+            animation.setEndValue(1.0)
+            animation.setDuration(700)
+            animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+            def step(value, wrapper=wrapper, effect=effect):
+                rise = round(self.RISE * (1.0 - value))
+                wrapper.layout().setContentsMargins(0, rise, 0, self.RISE - rise)
+                effect.setOpacity(value)
+
+            animation.valueChanged.connect(step)
+            animation.finished.connect(lambda widget=widget: widget.setGraphicsEffect(None))
+            QTimer.singleShot(index * 160, animation.start)
+            self._animations.append(animation)

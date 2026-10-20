@@ -1,0 +1,48 @@
+"""Internal task status system.
+
+Provides a granular status vocabulary for ripping tasks and a panel renderer
+used by the REPL's ``status`` command to show a live snapshot of every running
+task (stage, item, download/decrypt progress).
+"""
+
+from enum import StrEnum
+from typing import Iterable
+
+from applemusicdecrypt.task import Task
+
+def _fmt_bytes(n: int) -> str:
+    if n >= 1 << 20:
+        return f"{n / (1 << 20):.1f} MB"
+    if n >= 1 << 10:
+        return f"{n / (1 << 10):.0f} kB"
+    return f"{n} B"
+
+def status_panel(tasks: Iterable[Task]) -> str:
+    """Render a text panel of the given tasks (newest first)."""
+    rows = []
+    for t in tasks:
+        if t.status.is_terminal() and not t.error:
+            continue  # skip quietly-finished tasks unless they failed
+        stage = t.status.value
+        name = t.display_name
+        dl = ""
+        if t.downloaded_bytes:
+            progress = t.progress
+            if progress is not None:
+                # A known stream size turns the byte counter into a percentage
+                # with the absolute figures kept alongside it.
+                dl = (f"dl {int(progress * 100)}% "
+                      f"({_fmt_bytes(t.downloaded_bytes)}/{_fmt_bytes(t.total_bytes)})")
+            else:
+                dl = f"dl {_fmt_bytes(t.downloaded_bytes)}"
+        dec = f"dec {_fmt_bytes(t.decrypted_bytes)}" if t.decrypted_bytes else ""
+        extra = " ".join(x for x in (dl, dec) if x)
+        line = f"  [{stage:<12}] {name}"
+        if extra:
+            line += f"  ({extra})"
+        if t.error:
+            line += f"  ERROR: {t.error}"
+        rows.append(line)
+    if not rows:
+        return "  (no active tasks)"
+    return "\n".join(rows)

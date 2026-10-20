@@ -9,14 +9,20 @@ from PyQt6.QtCore import (
     pyqtSignal, pyqtSlot, QThreadPool, Qt, QTimer,
     QPropertyAnimation, QEasingCurve, QModelIndex, QSize, QPoint, QEvent
 )
-from PyQt6.QtGui import QFont, QPixmap, QFontMetrics, QCursor
+from PyQt6.QtGui import QFontMetrics
 from PyQt6 import sip
 import weakref
 import logging
+import time
 
 from ..search_widgets import LoadingSpinner
 from .artist_hero_and_header import ArtistHeroWidget, SegmentedTabs
-from .artist_card import ArtistAlbumCard
+from .artist_card import ArtistAlbumCard, result_data_for
+
+CARD_WIDTH = 200
+CARD_HEIGHT = 250
+BUILD_BUDGET_SECONDS = 0.012
+ARTWORK_MARGIN = 400
 from ..view_select import SelectionDropdown
 
 class ArtistDiscographyPage(QWidget):
@@ -102,6 +108,21 @@ class ArtistDiscographyPage(QWidget):
         self.scroll_areas = {}
         self.grid_layouts = {}
         self.grid_containers = {}
+        self._items = {}
+        self._build_queue = []
+        self._cols = 0
+
+        self._build_timer = QTimer(self)
+        self._build_timer.setInterval(0)
+        self._build_timer.timeout.connect(self._build_next_batch)
+        self._artwork_timer = QTimer(self)
+        self._artwork_timer.setSingleShot(True)
+        self._artwork_timer.setInterval(30)
+        self._artwork_timer.timeout.connect(self._load_visible_artwork)
+        self._reflow_timer = QTimer(self)
+        self._reflow_timer.setSingleShot(True)
+        self._reflow_timer.setInterval(60)
+        self._reflow_timer.timeout.connect(self._reflow_all_grids)
         
         for cat in self.categories:
             self._create_tab(cat)
@@ -119,6 +140,7 @@ class ArtistDiscographyPage(QWidget):
         self._hero_anim.setEasingCurve(QEasingCurve.Type.OutQuad)
         
         self.tab_widget.currentChanged.connect(self._connect_scroll_events)
+        self.tab_widget.currentChanged.connect(self._on_tab_changed)
         
         self.show_loading_state()
 
@@ -196,15 +218,10 @@ class ArtistDiscographyPage(QWidget):
         all_items_data = []
         include_mvs = self.hero.include_mv_checkbox.isChecked()
         for category in self.categories:
-            key = category.lower().replace(" ", "_")
-            grid_layout = self.grid_layouts.get(key)
-            if grid_layout:
-                for i in range(grid_layout.count()):
-                    item = grid_layout.itemAt(i)
-                    if item and (widget := item.widget()) and isinstance(widget, ArtistAlbumCard):
-                        if not include_mvs and widget.result_data.get('type') == 'music-videos':
-                            continue
-                        all_items_data.append(widget.result_data)
+            for item in self._items.get(category.lower().replace(" ", "_"), []):
+                if not include_mvs and item.get('type') == 'music-videos':
+                    continue
+                all_items_data.append(result_data_for(item))
         
         if not all_items_data:
             return
@@ -341,6 +358,7 @@ class ArtistDiscographyPage(QWidget):
         
         scroll_area.setWidget(container)
         tab_layout.addWidget(scroll_area)
+        scroll_area.verticalScrollBar().valueChanged.connect(lambda _value: self._artwork_timer.start())
 
     def populate_album_list(self, discography: list):
         main_window = self.window()
@@ -348,6 +366,8 @@ class ArtistDiscographyPage(QWidget):
             main_window.statusBar().showMessage("Discography loaded.", 5000)
 
         self.hide_loading_state()
+        self._build_timer.stop()
+        self._build_queue = []
         albums, eps, singles, compilations, videos = [], [], [], [], []
         for item in discography:
             attrs = item.get('attributes', {})
@@ -367,14 +387,15 @@ class ArtistDiscographyPage(QWidget):
             else:
                 albums.append(item)
         
-        self._populate_tab_content('albums', sorted(albums, key=lambda x: x.get('attributes', {}).get('releaseDate', ''), reverse=True))
-        self._populate_tab_content('eps', sorted(eps, key=lambda x: x.get('attributes', {}).get('releaseDate', ''), reverse=True))
-        self._populate_tab_content('singles', sorted(singles, key=lambda x: x.get('attributes', {}).get('releaseDate', ''), reverse=True))
-        self._populate_tab_content('music_videos', sorted(videos, key=lambda x: x.get('attributes', {}).get('releaseDate', ''), reverse=True))
-        self._populate_tab_content('compilations', sorted(compilations, key=lambda x: x.get('attributes', {}).get('releaseDate', ''), reverse=True))
-        
+        newest_first = lambda x: x.get('attributes', {}).get('releaseDate', '')
+        self._cols = self._column_count()
+        for key, items in (('albums', albums), ('eps', eps), ('singles', singles),
+                           ('music_videos', videos), ('compilations', compilations)):
+            self._populate_tab_content(key, sorted(items, key=newest_first, reverse=True))
+
+        self._prioritize_current_tab()
         self._connect_scroll_events()
-        QTimer.singleShot(0, self._reflow_all_grids)
+        self._build_timer.start()
 
     def _clear_layout(self, layout):
         if layout is not None:
@@ -391,37 +412,64 @@ class ArtistDiscographyPage(QWidget):
             return
 
         self._clear_layout(grid_layout)
+        self._items[key] = items
 
-        if not items:
-            parent_tab = self.grid_containers[key].parentWidget().parentWidget()
-            if parent_tab:
-                idx = self.tab_widget.indexOf(parent_tab)
-                if idx != -1: self.tab_widget.setTabVisible(idx, False)
-            return
-        
         parent_tab = self.grid_containers[key].parentWidget().parentWidget()
         if parent_tab:
             idx = self.tab_widget.indexOf(parent_tab)
-            if idx != -1: self.tab_widget.setTabVisible(idx, True)
+            if idx != -1:
+                self.tab_widget.setTabVisible(idx, bool(items))
+        self._build_queue.extend((key, index) for index in range(len(items)))
 
-        cols = max(1, self.width() // 200)
-        for i, item_data in enumerate(items):
-            card = ArtistAlbumCard(item_data)
+    def _current_key(self):
+        return self.categories[self.tab_widget.currentIndex()].lower().replace(" ", "_")
+
+    def _prioritize_current_tab(self):
+        key = self._current_key()
+        self._build_queue.sort(key=lambda entry: entry[0] != key)
+
+    def _on_tab_changed(self, _index):
+        if self._build_queue:
+            self._prioritize_current_tab()
+        self._artwork_timer.start()
+
+    def _build_next_batch(self):
+        deadline = time.perf_counter() + BUILD_BUDGET_SECONDS
+        main_window = self.window()
+        registry = getattr(main_window, 'card_widgets', None)
+        built = set()
+        while self._build_queue and time.perf_counter() < deadline:
+            key, index = self._build_queue.pop(0)
+            card = ArtistAlbumCard(self._items[key][index])
             card.download_requested.connect(self.on_card_download_requested)
             card.tracklist_requested.connect(self.tracklist_requested.emit)
             card.info_requested.connect(self.info_requested.emit)
             card.selection_changed.connect(self._handle_selection_changed)
             card.video_preview_requested.connect(self.video_preview_requested.emit)
-            
-            main_window = self.window()
-            if hasattr(main_window, 'card_widgets'):
-                url = card.result_data.get('appleMusicUrl')
-                if url:
-                    if url not in main_window.card_widgets:
-                        main_window.card_widgets[url] = weakref.WeakSet()
-                    main_window.card_widgets[url].add(card)
-            
-            grid_layout.addWidget(card, i // cols, i % cols)
+            url = card.result_data.get('appleMusicUrl')
+            if registry is not None and url:
+                registry.setdefault(url, weakref.WeakSet()).add(card)
+            self.grid_layouts[key].addWidget(card, index // self._cols, index % self._cols)
+            built.add(key)
+        if not self._build_queue:
+            self._build_timer.stop()
+        if self._current_key() in built:
+            self._load_visible_artwork()
+
+    def _load_visible_artwork(self):
+        view = self._get_current_view()
+        layout = self.grid_layouts.get(self._current_key())
+        if view is None or layout is None or not layout.count():
+            return
+        row_height = CARD_HEIGHT + layout.verticalSpacing()
+        top = max(0, view.verticalScrollBar().value() - ARTWORK_MARGIN)
+        bottom = view.verticalScrollBar().value() + view.viewport().height() + ARTWORK_MARGIN
+        first = top // row_height * self._cols
+        last = min(layout.count(), (bottom // row_height + 1) * self._cols)
+        for index in range(first, last):
+            card = layout.itemAt(index).widget()
+            if isinstance(card, ArtistAlbumCard) and not card.artwork_requested:
+                card.load_artwork()
 
     @pyqtSlot(object)
     def on_card_download_requested(self, card_obj):
@@ -444,16 +492,25 @@ class ArtistDiscographyPage(QWidget):
         self.tab_widget.show()
         self.segmented_header.show()
 
+    def _column_count(self):
+        return max(1, self.width() // CARD_WIDTH)
+
     def _reflow_all_grids(self):
+        cols = self._column_count()
+        if cols == self._cols:
+            self._artwork_timer.start()
+            return
+        self._cols = cols
         for grid in self.grid_layouts.values():
             self._reflow_grid_layout(grid)
+        self._artwork_timer.start()
 
     def _reflow_grid_layout(self, layout):
         if not layout or not layout.parentWidget():
             return
-            
-        cols = max(1, self.width() // 200)
-        
+
+        cols = self._cols
+
         widgets = []
         for i in range(layout.count()):
             item = layout.itemAt(i)
@@ -468,7 +525,7 @@ class ArtistDiscographyPage(QWidget):
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
-        QTimer.singleShot(50, self._reflow_all_grids)
+        self._reflow_timer.start()
 
     def _update_selection_controls(self):
         count = len(self.selection_manager)

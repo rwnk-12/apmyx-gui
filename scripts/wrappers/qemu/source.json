@@ -1,0 +1,29 @@
+{
+  "url": "https://github.com/rwnk-12/apmyx-setup-lite/releases/download/lite-2fd7e0e-2/wrapper-lite-qemu-windows-x86_64.zip",
+  "sha256": "8e36a2a096058030989a30c568e6d1d5a8d2d02ff434ee9d6b117febeec06eb0",
+  "size": 152852900,
+  "revision": "2fd7e0eaef081f93cf687428b965674937832ba4",
+  "release": "lite-2fd7e0e-2",
+  "platforms": {
+    "windows-x86_64": {
+      "url": "https://github.com/rwnk-12/apmyx-setup-lite/releases/download/lite-2fd7e0e-2/wrapper-lite-qemu-windows-x86_64.zip",
+      "sha256": "8e36a2a096058030989a30c568e6d1d5a8d2d02ff434ee9d6b117febeec06eb0",
+      "size": 152852900
+    },
+    "linux-x86_64": {
+      "url": "https://github.com/rwnk-12/apmyx-setup-lite/releases/download/lite-2fd7e0e-2/wrapper-lite-qemu-linux-x86_64.zip",
+      "sha256": "c6aace0044e2b299f01b3c2df7a967d5db00ab23ebcf1ad08bac9a9dbe17a44e",
+      "size": 83767858
+    },
+    "linux-aarch64": {
+      "url": "https://github.com/rwnk-12/apmyx-setup-lite/releases/download/lite-2fd7e0e-2/wrapper-lite-qemu-linux-aarch64.zip",
+      "sha256": "37fb4f2998a2b24d396efbc1fec17139e44eee4cf5c28af09383396270d4a98a",
+      "size": 83519557
+    },
+    "macos-aarch64": {
+      "url": "https://github.com/rwnk-12/apmyx-setup-lite/releases/download/lite-2fd7e0e-2/wrapper-lite-qemu-macos-aarch64.zip",
+      "sha256": "4d49f44301a1a13b9d9582e30c532b432ae0aaef684ffe05ee1c018a02a6d79a",
+      "size": 86288919
+    }
+  }
+}

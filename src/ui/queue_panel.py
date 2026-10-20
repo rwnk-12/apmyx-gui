@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import (
     QFrame, QWidget, QVBoxLayout, QScrollArea, QLabel, QHBoxLayout, QPushButton,
     QGraphicsDropShadowEffect, QDialog, QDialogButtonBox
 )
-from PyQt6.QtCore import Qt, pyqtSlot, pyqtSignal, QTimer, QPointF
+from PyQt6.QtCore import Qt, pyqtSlot, pyqtSignal, QTimer
 from PyQt6.QtGui import QColor, QPainter, QPen, QFont, QIcon, QPixmap
 from .download_job_widget import DownloadJobWidget
 
@@ -378,10 +378,10 @@ class QueuePanel(QFrame):
         else:
             print(f"DEBUG PYTHON: No widget found for job {jobid}")
 
-    @pyqtSlot(int, str)
-    def handle_track_skipped(self, job_id, track_name):
+    @pyqtSlot(int, str, str)
+    def handle_track_skipped(self, job_id, track_name, reason=""):
         if job_id in self.jobs:
-            self.jobs[job_id].add_skipped_track(track_name)
+            self.jobs[job_id].add_skipped_track(track_name, reason)
 
     @pyqtSlot(int, str)
     def handle_job_error_line(self, job_id, error_text):
@@ -422,7 +422,7 @@ class QueuePanel(QFrame):
             job_widget = self.jobs[job_id]
             job_widget.set_finished(message, success, skipped_tracks)
 
-            if "cancel" in message.lower():
+            if not success and "cancel" in message.lower():
                 self._schedule_widget_removal(job_widget, job_id)
         
         self._update_button_states()

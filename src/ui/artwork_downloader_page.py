@@ -1,5 +1,4 @@
 import os
-import re
 import requests
 import random
 import weakref
@@ -8,12 +7,11 @@ from PyQt6.QtWidgets import (
     QFileDialog, QGridLayout, QSizePolicy, QDialog, QGraphicsBlurEffect, QGraphicsDropShadowEffect,
     QStackedWidget
 )
-from PyQt6.QtCore import pyqtSignal, pyqtSlot, QThreadPool, QRunnable, QObject, Qt, QEvent, QTimer, QPointF
-from PyQt6.QtGui import QPixmap, QPainter, QColor, QCursor, QPen, QImage
+from PyQt6.QtCore import pyqtSignal, pyqtSlot, QThreadPool, QRunnable, QObject, Qt, QEvent, QTimer
+from PyQt6.QtGui import QPixmap, QColor, QImage
 
 from .search_widgets import SearchLineEdit, LoadingSpinner, ImageFetcher, round_pixmap, MarqueeLabel
 from .search_cards import SettingsButton, DownloadIconButton
-from enum import Enum
 
 class HeroImageWorkerSignals(QObject):
     finished = pyqtSignal(QPixmap, str)

@@ -6,7 +6,6 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import (pyqtSignal, pyqtSlot, QThreadPool, Qt, QTimer, QPropertyAnimation, QEasingCurve, 
                           QRect, QRectF, pyqtProperty)
 from PyQt6.QtGui import QPixmap, QBitmap, QPainter, QColor, QFont, QPainterPath
-import logging
 from ..search_widgets import ImageFetcher, ClickableLabel, CustomCheckBox
 from ..search_cards import SettingsButton
 
@@ -278,12 +277,6 @@ class ArtistHeroWidget(QWidget):
     def heroHeight(self, v):
         self._heroH = int(v)
         self.setFixedHeight(self._heroH)
-
-    def apply_collapsed_endpoint(self, collapsed: bool):
-        self.is_collapsed = collapsed
-        if collapsed:
-            self.background_label.setGraphicsEffect(None)
-        self._update_gradient()
 
     def _update_gradient(self):
         if self.is_collapsed:

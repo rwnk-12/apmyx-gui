@@ -1,7 +1,7 @@
 import os
 import sys
 from PyQt6.QtGui import QPixmap, QPainter, QPen, QColor, QIcon
-from PyQt6.QtCore import Qt, QByteArray, QSize
+from PyQt6.QtCore import Qt, QByteArray
 from PyQt6.QtSvg import QSvgRenderer
 
 def resource_path(relative_path):

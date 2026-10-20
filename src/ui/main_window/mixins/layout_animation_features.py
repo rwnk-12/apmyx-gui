@@ -1,7 +1,5 @@
-import logging
-import multiprocessing
-from PyQt6.QtWidgets import QGridLayout, QLabel, QApplication
-from PyQt6.QtCore import QPropertyAnimation, QEasingCurve, QRect, QParallelAnimationGroup, QPoint, QTimer, QEvent, QObject
+from PyQt6.QtWidgets import QGridLayout
+from PyQt6.QtCore import QPropertyAnimation, QEasingCurve, QParallelAnimationGroup, QEvent, QObject
 
 class LayoutAnimationFeatures:
     

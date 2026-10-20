@@ -1,0 +1,223 @@
+"""Decryption layer for v3.
+
+Two code paths:
+- FPS (default): the client fetches a *template* JSON from the wrapper/lite
+  `/key` endpoint and decrypts samples **locally** with `temari` (bundled Rust
+  cdylib). Streaming mode (default) uses `temari.StreamDecryptor` so samples
+  are decrypted while the media file is still downloading (边下边解).
+- Legacy (aac-legacy / Widevine): pywidevine generates a license challenge,
+  the wrapper `/license` endpoint returns the license, and samples are
+  decrypted in pure Python with AES-CBC (pycryptodome).
+
+Temari handles are immutable and thread-safe; we cache them per (adam_id, uri).
+The prefetch key template is fetched once and reused for every song.
+"""
+
+import asyncio
+import base64
+from pathlib import Path
+from typing import Optional, Tuple, Type
+
+from creart import AbstractCreator, CreateTargetInfo, exists_module
+from applemusicdecrypt.services import it
+
+import temari
+
+from applemusicdecrypt.config import Config
+from applemusicdecrypt.legacy.decrypt import WidevineDecrypt
+from applemusicdecrypt.legacy.playready import PlayReadyDecrypt, build_wrm_header
+from applemusicdecrypt.wrapper import WrapperClient
+from applemusicdecrypt.resources import asset_path
+
+# Template for this key is content-independent: one fetch is reused for all songs.
+PREFETCH_KEY = "skd://itunes.apple.com/P000000000/s1/e1"
+
+# Offline-embedded preshare template (like zhaarey's static prefetch_template.go).
+# When present, the FPS sample decryption needs NO /key request at all; the
+# wrapper /key is only used as a fallback if this file is missing or corrupt.
+EMBEDDED_TEMPLATE_PATH = asset_path("prefetch_template.json")
+
+
+class Decryptor:
+    def __init__(self, wrapper: WrapperClient):
+        self._wrapper = wrapper
+        self._templates: dict[Tuple[str, str], temari.Temari] = {}
+        self._prefetch: Optional[temari.Temari] = None
+        self._prefetch_lock = asyncio.Lock()
+        self._legacy: Optional[WidevineDecrypt] = None
+
+    @staticmethod
+    def _try_embedded_template() -> Optional[temari.Temari]:
+        if not EMBEDDED_TEMPLATE_PATH.exists():
+            return None
+        try:
+            return temari.Temari.from_json(EMBEDDED_TEMPLATE_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+
+    async def _prefetch_template(self) -> temari.Temari:
+        """Return the preshare template, preferring the embedded offline copy."""
+        template = self._try_embedded_template()
+        if template is not None:
+            return template
+        # Fallback: fetch the preshare context from the wrapper.
+        return await self._load("0", PREFETCH_KEY)
+
+    async def get_template(self, adam_id: str, uri: str) -> temari.Temari:
+        """Return a cached Temari template handle for (adam_id, uri).
+
+        The prefetch key's template is the content-independent preshare
+        context (the wrapper only uses the preshare path when ``adamId == "0"``,
+        so we always request it with adam_id ``"0"``). It is fetched once and
+        reused for every song and every fragment.
+        """
+        if uri == PREFETCH_KEY:
+            if self._prefetch is None:
+                async with self._prefetch_lock:
+                    if self._prefetch is None:
+                        self._prefetch = await self._prefetch_template()
+            return self._prefetch
+
+        key = (adam_id, uri)
+        template = self._templates.get(key)
+        if template is None:
+            template = await self._load(adam_id, uri)
+            self._templates[key] = template
+        return template
+
+    async def warm_prefetch(self):
+        """Pre-warm the content-independent prefetch template.
+
+        The FairPlay prefetch template is the same for every song; warming it
+        once at batch start avoids the first song stalling on a ``/key`` RPC.
+        """
+        await self.get_template("0", PREFETCH_KEY)
+
+    async def _load(self, adam_id: str, uri: str) -> temari.Temari:
+        json_text = await self._wrapper.key_template_json(adam_id, uri)
+        try:
+            return temari.Temari.from_json(json_text)
+        except temari.TemariError as e:
+            raise RuntimeError(
+                f"Failed to build decryption template for {adam_id} {uri}: {e}"
+            ) from e
+
+    async def stream(self, adam_id: str, uri: str,
+                     batch_size: Optional[int] = None) -> temari.StreamDecryptor:
+        """Create a Temari streaming decryptor (边下边解)."""
+        batch = batch_size or it(Config).download.decryptBatchSize
+        template = await self.get_template(adam_id, uri)
+        return template.stream(batch)
+
+    # ------------------------------------------------------------------ #
+    # Legacy (Widevine / aac-legacy)
+    # ------------------------------------------------------------------ #
+    async def legacy_content_key(self, adam_id: str, key_uri: str) -> Tuple[bytes, bytes]:
+        """Acquire the (kid, key) pair for a legacy Widevine-encrypted track.
+
+        ``key_uri`` is the EXT-X-KEY URI. Apple's webPlayback (AAC-legacy)
+        uses a Widevine ``data:;base64,<kid-b64>`` URI (method ISO-23001-7);
+        skd-style URIs (``skd://...;<kid>``) are also supported for
+        compatibility. ``generate_pssh`` expects the KID as base64 text.
+        """
+        if key_uri.startswith("data:"):
+            kid = key_uri.split("base64,", 1)[1] if "base64," in key_uri else key_uri.split(",", 1)[-1]
+        else:
+            kid = key_uri.rsplit(";", 1)[-1]
+        wv = WidevineDecrypt()
+        challenge = wv.generate_challenge(kid)
+        license_text = await self._wrapper.license(adam_id, challenge, key_uri)
+        keys = wv.generate_key(license_text)
+        for k in keys:
+            if k.type == "CONTENT":
+                return k.kid, k.key
+        raise RuntimeError(f"No content key found in license for {adam_id}")
+
+    async def mv_content_key(self, adam_id: str, key_uri: str) -> bytes:
+        """Acquire the Widevine content key for an MV stream.
+
+        MV HLS key URIs are ``data:text/plain;base64,<PSSH>`` boxes. The
+        wrapper returns a Widevine ``SignedMessage`` license whose content key
+        has a non-standard 56-byte KID that pywidevine's ``kid_to_uuid``
+        cannot parse, so we temporarily relax that conversion.
+        """
+        import base64 as _b64
+        import uuid
+        from pywidevine.key import Key
+
+        pssh_b64 = key_uri.split("base64,", 1)[1] if "base64," in key_uri else key_uri
+        wv = WidevineDecrypt()
+        challenge = wv.generate_challenge(pssh_b64)
+        license_text = await self._wrapper.license(adam_id, challenge, key_uri)
+
+        orig = Key.kid_to_uuid
+
+        def tolerant(kid):
+            try:
+                return orig(kid)
+            except ValueError:
+                k = _b64.b64decode(kid) if isinstance(kid, str) else kid
+                if not k:
+                    k = b"\x00" * 16
+                return uuid.UUID(bytes=(k + b"\x00" * 16)[:16])
+
+        Key.kid_to_uuid = staticmethod(tolerant)
+        try:
+            keys = wv.generate_key(license_text)
+        finally:
+            Key.kid_to_uuid = staticmethod(orig)
+        for k in keys:
+            if k.type == "CONTENT":
+                return k.key
+        raise RuntimeError(f"No content key found in MV license for {adam_id}")
+
+    async def mv_playready_content_key(self, adam_id: str, key_uri: str) -> bytes:
+        """Acquire the PlayReady content key for an MV stream (SL3000 variants).
+
+        ``key_uri`` is the ``KEYFORMAT="com.microsoft.playready"`` EXT-X-KEY
+        URI (a UTF-16 PlayReady Object, or a bare KID). The challenge is built
+        with the SL3000 device in ``assets/pr_device.json`` and the license is
+        fetched from the wrapper ``/license`` with ``drm-type=pr``.
+        """
+        wrm_header, license_uri = build_wrm_header(key_uri)
+        pr = PlayReadyDecrypt()
+        try:
+            challenge = pr.generate_challenge(wrm_header)
+            license_b64 = await self._wrapper.license(adam_id, challenge, license_uri, drm_type="pr")
+            keys = pr.generate_key(license_b64)
+        finally:
+            pr.close()
+        for k in keys:
+            if k.key:
+                return k.key
+        raise RuntimeError(f"No content key found in MV PlayReady license for {adam_id}")
+
+    def close(self):
+        for t in self._templates.values():
+            try:
+                t.close()
+            except Exception:
+                pass
+        self._templates.clear()
+        if self._prefetch is not None:
+            try:
+                self._prefetch.close()
+            except Exception:
+                pass
+            self._prefetch = None
+
+
+class DecryptorCreator(AbstractCreator):
+    """creart creator for :class:`Decryptor` (built on the WrapperClient)."""
+
+    targets = (
+        CreateTargetInfo("applemusicdecrypt.decrypt", "Decryptor"),
+    )
+
+    @staticmethod
+    def available() -> bool:
+        return exists_module("applemusicdecrypt.decrypt")
+
+    @staticmethod
+    def create(create_type: Type[Decryptor]) -> Decryptor:
+        return create_type(it(WrapperClient))

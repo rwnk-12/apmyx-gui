@@ -1,10 +1,8 @@
 import os
 import sys
 import logging
-import multiprocessing
 import subprocess
 import yaml
-from PyQt6 import sip
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget,
     QStatusBar, QLabel, QLayout,
@@ -14,18 +12,15 @@ from PyQt6.QtCore import pyqtSignal, QTimer, QThreadPool, pyqtSlot, QSettings
 from PyQt6.QtGui import QAction
 from ..preview_player import Player
 from core.download_worker import DownloadWorker
-from .player_bar import PlayerBar
 from ..search_cards import LoadingTile, PlayButton
-from ..queue_panel import QueuePanel
-from ..view_select import SelectionDropdown
 from .dialogs import RestartDialog, StorefrontRequiredDialog
-from ..video_preview_dialog import VideoPreviewDialog
 from .mixins.ui_setup_features import UiSetupFeatures
 from .mixins.layout_animation_features import LayoutAnimationFeatures
 from .mixins.search_features import SearchFeatures
 from .mixins.signal_handlers_features import SignalHandlersFeatures
 from .mixins.player_features import PlayerFeatures
 from .mixins.selection_features import SelectionFeatures
+from core.config import config_path
 
 class MainWindow(QMainWindow, UiSetupFeatures, LayoutAnimationFeatures, SearchFeatures, SignalHandlersFeatures, PlayerFeatures, SelectionFeatures):
     trigger_download_job = pyqtSignal(int, dict, str, str)
@@ -57,7 +52,7 @@ class MainWindow(QMainWindow, UiSetupFeatures, LayoutAnimationFeatures, SearchFe
         self.queue_open = False
         self._sidebar_prev_open = None
         self._queue_prev_open = None
-        self.download_worker = DownloadWorker(self.controller.downloader_executable, self.controller)
+        self.download_worker = DownloadWorker(self.controller)
         self.current_query = None
         self.search_cache = {}
         self.search_offsets = {}
@@ -115,7 +110,7 @@ class MainWindow(QMainWindow, UiSetupFeatures, LayoutAnimationFeatures, SearchFe
     def _load_initial_settings(self):
         valid_qualities = ["Atmos", "ALAC", "AAC"]
         try:
-            with open('config.yaml', 'r') as f:
+            with open(config_path(), 'r') as f:
                 config = yaml.safe_load(f) or {}
             aac_type = config.get('aac-type', 'aac-lc')
             self.aac_quality_selector.setCurrentText(aac_type)
@@ -124,29 +119,40 @@ class MainWindow(QMainWindow, UiSetupFeatures, LayoutAnimationFeatures, SearchFe
                 self.quality_selector.setCurrentText(preferred_quality)
                 self._on_quality_selection_changed(preferred_quality)
             else:
-                logging.warning(f"Invalid preferred-quality '{preferred_quality}' in config; defaulting to 'Atmos'")
-                config['preferred-quality'] = 'Atmos'
-                with open('config.yaml', 'w') as f:
+                logging.warning(f"Invalid preferred-quality '{preferred_quality}' in config; defaulting to 'ALAC'")
+                config['preferred-quality'] = 'ALAC'
+                with open(config_path(), 'w') as f:
                     yaml.dump(config, f, sort_keys=False, allow_unicode=True)
-                self.quality_selector.setCurrentIndex(0)
-                self._on_quality_selection_changed('Atmos')
+                self.quality_selector.setCurrentText('ALAC')
+                self._on_quality_selection_changed('ALAC')
         except FileNotFoundError:
-            config = {'preferred-quality': 'Atmos', 'aac-type': 'aac-lc'}
-            with open('config.yaml', 'w') as f:
+            config = {'preferred-quality': 'ALAC', 'aac-type': 'aac-lc'}
+            with open(config_path(), 'w') as f:
                 yaml.dump(config, f, sort_keys=False, allow_unicode=True)
-            self.quality_selector.setCurrentIndex(0)
+            self.quality_selector.setCurrentText('ALAC')
             self.aac_quality_selector.setCurrentText('aac-lc')
-            self._on_quality_selection_changed('Atmos')
+            self._on_quality_selection_changed('ALAC')
         except Exception as e:
             logging.error(f"Failed to load initial settings from config.yaml: {e}")
-            self.quality_selector.setCurrentIndex(0)
+            self.quality_selector.setCurrentText('ALAC')
             self.aac_quality_selector.setCurrentText('aac-lc')
-            self._on_quality_selection_changed('Atmos')
+            self._on_quality_selection_changed('ALAC')
 
     @pyqtSlot()
     def on_force_clear_all_jobs(self):
         logging.info("MainWindow force clearing all job queues.")
         self._disco_batch = None
+
+    def _stop_wrapper_lite_if_started(self):
+        from core import wrapper_lite
+        from core.config import load_config
+
+        try:
+            port = wrapper_lite.local_port(load_config().get('applemusicdecrypt-url', ''))
+            if port is not None and wrapper_lite.stop_if_started(port):
+                logging.info("Stopping Wrapper Lite started by this session.")
+        except Exception as exc:
+            logging.warning(f"Could not stop Wrapper Lite: {exc}")
 
     def _restart_application(self):
         logging.info("Scheduling application restart...")
@@ -204,9 +210,6 @@ class MainWindow(QMainWindow, UiSetupFeatures, LayoutAnimationFeatures, SearchFe
         self.popup_label.show()
         QTimer.singleShot(10000, self.popup_label.hide)
 
-    def update_queue_button(self, count):
-        pass
-
     def _clear_layout(self, layout, delete_widgets=True):
         if layout is not None:
             if self.loading_tile.parent() is not None:
@@ -222,9 +225,6 @@ class MainWindow(QMainWindow, UiSetupFeatures, LayoutAnimationFeatures, SearchFe
                         widget.setParent(None)
             if delete_widgets and isinstance(layout, QLayout):
                 QWidget().setLayout(layout)
-
-    def _update_quality_ui(self):
-        pass
 
     def _position_fetch_popup(self):
         self.fetch_progress_popup.adjustSize()
@@ -254,6 +254,8 @@ class MainWindow(QMainWindow, UiSetupFeatures, LayoutAnimationFeatures, SearchFe
             if hasattr(self, 'player'):
                 self.player.cleanup()
             self.download_worker.cancel_all_jobs()
+            self.controller.stop_all_tasks()
+            self._stop_wrapper_lite_if_started()
             logging.info("Waiting for thread pools to shut down...")
             if not self.controller.thread_pool.waitForDone(2000):
                 logging.warning("Controller thread pool timeout on shutdown.")
@@ -261,6 +263,10 @@ class MainWindow(QMainWindow, UiSetupFeatures, LayoutAnimationFeatures, SearchFe
                 logging.warning("Download worker thread pool timeout on shutdown.")
             if not QThreadPool.globalInstance().waitForDone(2000):
                 logging.warning("Global thread pool timeout on shutdown.")
+            from ..artist.artist_card import ARTWORK_POOL
+            ARTWORK_POOL.clear()
+            if not ARTWORK_POOL.waitForDone(2000):
+                logging.warning("Artwork thread pool timeout on shutdown.")
             self._force_terminate_subprocesses()
             self._safe_cleanup_widgets()
             logging.info("Shutdown sequence complete. Scheduling application quit.")

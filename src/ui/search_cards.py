@@ -1644,9 +1644,6 @@ class DiscographyCellWidget(QWidget):
     def is_checked(self):
         return self.checkbox.isChecked()
 
-    def get_url(self):
-        return self.album_data.get('attributes', {}).get('url')
-
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.LeftButton:
             if not self.tracklist_button.geometry().contains(event.pos()):

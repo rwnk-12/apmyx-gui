@@ -1,24 +1,21 @@
 import os
 import subprocess
 import sys
+from collections import deque
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QScrollArea, QFrame, QPushButton,
     QFileDialog, QSizePolicy, QGraphicsDropShadowEffect, QStackedWidget, QProgressBar,
-    QMenu, QApplication
+    QMenu, QApplication, QComboBox, QCheckBox
 )
 from PyQt6.QtCore import (
     pyqtSignal, pyqtSlot, QThreadPool, QObject, Qt, QFileSystemWatcher, QTimer,
-    QPropertyAnimation, QEasingCurve, QPointF, pyqtProperty
+    QPropertyAnimation, QEasingCurve, QPointF, pyqtProperty, QSettings
 )
-from PyQt6.QtGui import QColor, QPixmap, QFont, QPainter, QPen, QPolygonF, QFontMetrics
+from PyQt6.QtGui import QColor, QPixmap, QPainter, QPen, QPolygonF, QFontMetrics
 from .search_widgets import LoadingSpinner, round_pixmap
 from .search_cards import SettingsButton
-from mutagen import File, MutagenError
-from mutagen.mp3 import MP3
-from mutagen.flac import FLAC
-from mutagen.mp4 import MP4
-from mutagen.oggvorbis import OggVorbis
+from mutagen import File
 
 try:
     from mutagen.opus import Opus
@@ -205,98 +202,85 @@ class StickyHeader(QFrame):
         super().mousePressEvent(event)
 
 class LocalTrackCard(QFrame):
-    get_lyrics_requested = pyqtSignal(dict)
+    get_lyrics_requested = pyqtSignal(str)
+    HEIGHT = 50
 
     def __init__(self, track_info, parent=None):
         super().__init__(parent)
         self.track_info = track_info
-        self.setFixedHeight(50)
+        self.setFixedHeight(self.HEIGHT)
         self.setObjectName("LocalTrackCard")
-        self.setStyleSheet("""
-            #LocalTrackCard {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #2c2c2c, stop:1 #2a2a2a);
-                border: none; border-bottom: 1px solid #444; margin: 0; padding: 0;
-            }
-            #LocalTrackCard:hover { 
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #3a3a3a, stop:1 #333); 
-            }
-            QLabel { background-color: transparent; }
-        """)
-        
+
         main_layout = QHBoxLayout(self)
         main_layout.setContentsMargins(12, 8, 12, 8)
         main_layout.setSpacing(15)
-        
-        self.artwork_label = QLabel("...")
+
+        self.artwork_label = QLabel()
+        self.artwork_label.setObjectName("LyricsArtwork")
         self.artwork_label.setFixedSize(34, 34)
         self.artwork_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.artwork_label.setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #3a3a3a, stop:1 #333); border-radius: 4px; color: #999; border: 1px solid #444;")
-        self.artwork_label.setFont(QFont("Inter Tight", 14, QFont.Weight.Bold))
         main_layout.addWidget(self.artwork_label)
-        
+
         self.title_label = QLabel(self.track_info.get('title', 'Unknown Title'))
-        self.title_label.setStyleSheet("font-weight: bold; font-size: 10pt; color: #e0e0e0; border: none;")
-        
+        self.title_label.setObjectName("LyricsTitle")
         self.artist_label = QLabel(self.track_info.get('artist', 'Unknown Artist'))
-        self.artist_label.setStyleSheet("color: #bbb; font-size: 8pt; border: none;")
-        
+        self.artist_label.setObjectName("LyricsArtist")
+
         info_layout = QVBoxLayout()
         info_layout.setSpacing(2)
         info_layout.addWidget(self.title_label)
         info_layout.addWidget(self.artist_label)
         main_layout.addLayout(info_layout, 1)
-        
+
         self.action_button = QPushButton()
+        self.action_button.setObjectName("LyricsAction")
         self.action_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.action_button.setFixedSize(85, 26)
+        self.action_button.clicked.connect(self._on_action)
         main_layout.addWidget(self.action_button)
-        
+
         self._set_artwork()
-        self.update_status(self.track_info.get('has_lyrics', False))
+        self.update_status(self.track_info.get('has_lyrics', False), self.track_info.get('message'))
 
     def _set_artwork(self):
-        artwork_data = self.track_info.get('artwork_data')
-        if artwork_data:
-            pixmap = QPixmap()
-            pixmap.loadFromData(artwork_data)
-            self.artwork_label.setPixmap(round_pixmap(pixmap.scaled(self.artwork_label.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation), 4))
+        image = self.track_info.get('artwork')
+        if image is not None and not image.isNull():
+            pixmap = QPixmap.fromImage(image).scaled(
+                self.artwork_label.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+            )
+            self.artwork_label.setPixmap(round_pixmap(pixmap, 4))
         else:
-            self.artwork_label.setText(self.track_info.get('title', '?')[0].upper())
+            self.artwork_label.setText((self.track_info.get('title') or '?')[0].upper())
 
     def update_status(self, has_lyrics, message=None):
         self.track_info['has_lyrics'] = has_lyrics
-        self.action_button.setEnabled(True)
-        self.action_button.setText(message or ("View" if has_lyrics else "Get Lyrics"))
-        
-        try:
-            self.action_button.clicked.disconnect()
-        except TypeError:
-            pass
-
-        if has_lyrics:
-            self.action_button.setStyleSheet("QPushButton { background-color: #4CAF50; color: white; border: none; border-radius: 4px; padding: 3px 6px; font-weight: bold; font-size: 8pt; } QPushButton:hover { background-color: #45a049; }")
-            self.action_button.clicked.connect(self._view_lyrics)
+        lowered = (message or "").lower()
+        if lowered in ("queued", "downloading..."):
+            state, enabled = "busy", False
+        elif lowered == "failed":
+            state, enabled = "failed", True
+        elif lowered == "not available":
+            state, enabled = "unavailable", False
+        elif has_lyrics:
+            state, enabled = "view", lowered != "exists"
         else:
-            self.action_button.setStyleSheet("QPushButton { background-color: #c54863; color: white; border: none; border-radius: 4px; padding: 3px 6px; font-weight: bold; font-size: 8pt; } QPushButton:hover { background-color: #b0415a; }")
-            self.action_button.clicked.connect(self._get_lyrics)
+            state, enabled = "get", True
+        self.action_button.setText(message or ("View" if has_lyrics else "Get Lyrics"))
+        self.action_button.setEnabled(enabled)
+        if self.action_button.property("state") != state:
+            self.action_button.setProperty("state", state)
+            self.action_button.style().unpolish(self.action_button)
+            self.action_button.style().polish(self.action_button)
 
-        if message:
-            msg_lower = message.lower()
-            if msg_lower in ["downloading...", "exists"]:
-                self.action_button.setEnabled(False)
-            if msg_lower == "failed":
-                self.action_button.setStyleSheet("QPushButton { background-color: #f44336; color: white; border: none; border-radius: 4px; padding: 3px 6px; font-weight: bold; font-size: 8pt; }")
-            elif msg_lower == "not available":
-                self.action_button.setStyleSheet("QPushButton { background-color: #555; color: #ccc; border: none; border-radius: 4px; padding: 3px 6px; font-weight: bold; font-size: 8pt; }")
-                self.action_button.setEnabled(False)
+    def _on_action(self):
+        if self.track_info.get('has_lyrics'):
+            self._view_lyrics()
+        else:
+            self.get_lyrics_requested.emit(self.track_info['filepath'])
 
-    def _get_lyrics(self):
-        self.update_status(False, "Downloading...")
-        self.get_lyrics_requested.emit(self.track_info)
-        
     def _view_lyrics(self):
         base, _ = os.path.splitext(self.track_info.get('filepath'))
-        lyrics_file = next((f for f in [base + '.lrc', base + '.ttml'] if os.path.exists(f)), None)
+        lyrics_file = next((f for f in [base + '.lrc', base + '.ttml', base + '.txt'] if os.path.exists(f)), None)
         if lyrics_file:
             try:
                 if sys.platform == "win32":
@@ -312,22 +296,27 @@ class LyricsDownloaderPage(QWidget):
     def __init__(self, controller, parent=None):
         super().__init__(parent)
         self.controller = controller
+        self.tracks = {}
+        self.sections = {}
         self.card_widgets = {}
-        self.directory_widgets = {}
         self.scanned_data = {}
         self.current_path = None
         self.total_files_to_scan = 0
         self.processed_files = 0
         self.missing_lyrics_count = 0
-        self._ignore_watcher = False
-        self.download_progress = {}
-        self.global_download_progress = {}
         self.setObjectName("LyricsDownloaderPage")
-        
-        self._pending_cards = []
-        self._inflight = 0
+
+        self._queue = deque()
+        self._queued = set()
+        self._inflight = set()
         self._max_concurrent = 4
-        
+        self._run_total = 0
+        self._run_done = 0
+        self._build_jobs = deque()
+        self._build_timer = QTimer(self)
+        self._build_timer.setInterval(0)
+        self._build_timer.timeout.connect(self._build_next_batch)
+
         root_layout = QVBoxLayout(self)
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
@@ -410,6 +399,7 @@ class LyricsDownloaderPage(QWidget):
         controls_layout.addWidget(self.download_all_button)
         controls_layout.addStretch(1)
         content_layout.addLayout(controls_layout)
+        content_layout.addLayout(self._create_options_row())
         
         self.global_progress_bar = QProgressBar()
         self.global_progress_bar.setFixedHeight(4)
@@ -471,7 +461,6 @@ class LyricsDownloaderPage(QWidget):
         self.file_watcher.directoryChanged.connect(self._on_directory_changed)
         self._watcher_reset_timer = QTimer(self)
         self._watcher_reset_timer.setSingleShot(True)
-        self._watcher_reset_timer.timeout.connect(self._unignore_watcher)
         self._watcher_debounce_timer = QTimer(self)
         self._watcher_debounce_timer.setSingleShot(True)
         self._watcher_debounce_timer.setInterval(500)
@@ -492,13 +481,88 @@ class LyricsDownloaderPage(QWidget):
                 color: white; 
                 background: transparent; 
             }
-            QLabel#SettingsSubtitle { 
-                font-size: 9.5pt; 
-                color: #b0b0b0; 
+            QLabel#SettingsSubtitle {
+                font-size: 9.5pt;
+                color: #b0b0b0;
                 font-weight: normal;
-                background: transparent; 
+                background: transparent;
             }
+            #LocalTrackCard {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #2c2c2c, stop:1 #2a2a2a);
+                border: none; border-bottom: 1px solid #444; margin: 0; padding: 0;
+            }
+            #LocalTrackCard:hover {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #3a3a3a, stop:1 #333);
+            }
+            #LocalTrackCard QLabel { background-color: transparent; border: none; }
+            QLabel#LyricsArtwork {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #3a3a3a, stop:1 #333);
+                border-radius: 4px; color: #999; border: 1px solid #444; font-size: 14pt; font-weight: bold;
+            }
+            QLabel#LyricsTitle { font-weight: bold; font-size: 10pt; color: #e0e0e0; }
+            QLabel#LyricsArtist { color: #bbb; font-size: 8pt; }
+            QPushButton#LyricsAction {
+                color: white; border: none; border-radius: 4px; padding: 3px 6px;
+                font-weight: bold; font-size: 8pt; background-color: #c54863;
+            }
+            QPushButton#LyricsAction:hover { background-color: #b0415a; }
+            QPushButton#LyricsAction[state="view"] { background-color: #4CAF50; }
+            QPushButton#LyricsAction[state="view"]:hover { background-color: #45a049; }
+            QPushButton#LyricsAction[state="busy"] { background-color: #8a3a4c; color: #e8e8e8; }
+            QPushButton#LyricsAction[state="failed"] { background-color: #f44336; }
+            QPushButton#LyricsAction[state="unavailable"] { background-color: #555; color: #ccc; }
         """)
+
+    def _create_options_row(self):
+        self.options_store = QSettings("apmyx", "lyrics-downloader")
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 10, 0, 0)
+        row.setSpacing(8)
+
+        def combo(label, key, items, default):
+            caption = QLabel(label)
+            caption.setStyleSheet("color: #aaa; font-size: 9pt;")
+            box = QComboBox()
+            for text, value in items:
+                box.addItem(text, value)
+            index = box.findData(self.options_store.value(key, default))
+            box.setCurrentIndex(index if index >= 0 else 0)
+            box.currentIndexChanged.connect(lambda _: self._save_options())
+            row.addWidget(caption)
+            row.addWidget(box)
+            row.addSpacing(8)
+            return box
+
+        self.timing_box = combo("Timing", "timing", [("Line", "line"), ("Syllable / word", "syllable")], "line")
+        self.format_box = combo("Format", "format", [("LRC", "lrc"), ("TTML", "ttml"), ("Plain text", "text")], "lrc")
+        self.translation_check = QCheckBox("Translation")
+        self.pronunciation_check = QCheckBox("Pronunciation")
+        for check, key in ((self.translation_check, "translation"), (self.pronunciation_check, "pronunciation")):
+            check.setChecked(str(self.options_store.value(key, "true")).lower() == "true")
+            check.setToolTip("Adds extra LRC lines when Apple provides them.")
+            check.toggled.connect(lambda _: self._save_options())
+            row.addWidget(check)
+        row.addStretch(1)
+        self._sync_option_states()
+        return row
+
+    def _sync_option_states(self):
+        output = self.format_box.currentData()
+        self.timing_box.setEnabled(output != "text")
+        for check in (self.translation_check, self.pronunciation_check):
+            check.setEnabled(output == "lrc")
+
+    def _save_options(self):
+        self._sync_option_states()
+        options = self.lyrics_options()
+        for key in ("timing", "format"):
+            self.options_store.setValue(key, options[key])
+        self.options_store.setValue("translation", "true" if self.translation_check.isChecked() else "false")
+        self.options_store.setValue("pronunciation", "true" if self.pronunciation_check.isChecked() else "false")
+
+    def lyrics_options(self):
+        extras = [kind for kind, check in (("translation", self.translation_check), ("pronunciation", self.pronunciation_check)) if check.isChecked()]
+        return {"timing": self.timing_box.currentData(), "format": self.format_box.currentData(), "extras": extras}
 
     def _create_placeholder_widget(self):
         widget = QWidget()
@@ -533,8 +597,8 @@ class LyricsDownloaderPage(QWidget):
             point_layout.addWidget(text_label, 1)
             return point_widget
 
-        info_layout.addWidget(create_info_point("ⓘ", "<b>Token Required:</b> A <b>Media User Token</b> must be set in Settings. This is essential for matching your local files with the Apple Music catalog."))
-        info_layout.addWidget(create_info_point("✔", "<b>File Format:</b> Found lyrics are saved as standard <b>.lrc</b> files in the same folder as your songs."))
+        info_layout.addWidget(create_info_point("ⓘ", "<b>Lyrics Source:</b> Lyrics come from your configured <b>wrapper</b> (no token needed), or from Apple Music with a <b>Media User Token</b> set in Settings."))
+        info_layout.addWidget(create_info_point("✔", "<b>File Format:</b> Choose <b>LRC</b> (line or syllable timing), <b>TTML</b>, or <b>plain text</b>. Files are saved next to your songs."))
         info_layout.addWidget(create_info_point("!", "<b>Matching Process:</b> Songs are identified using their <b>Title</b>, <b>Artist</b>, and <b>Album</b> metadata. Files with missing or incorrect tags cannot be matched and will be skipped."))
 
         content_row_layout = QHBoxLayout()
@@ -552,18 +616,21 @@ class LyricsDownloaderPage(QWidget):
     def scan_local_folder(self):
         path = QFileDialog.getExistingDirectory(self, "Select Music Folder", self.current_path or os.path.expanduser("~"))
         if path:
-            if self.current_path:
-                self.file_watcher.removePath(self.current_path)
-            self.current_path = path
-            self.directory_label.setText(f"Scanning: {path}")
-            self._clear_results()
-            self.main_stack.setCurrentWidget(self.loading_widget)
-            self.loading_status_label.setText("Finding audio files...")
-            self.loading_spinner.start()
-            self.download_all_button.hide()
-            self.right_click_info_label.hide()
-            self.controller.scan_local_directory(path)
-            self.file_watcher.addPath(path)
+            self._start_scan(path)
+
+    def _start_scan(self, path):
+        if self.current_path:
+            self.file_watcher.removePath(self.current_path)
+        self.current_path = path
+        self.directory_label.setText(f"Scanning: {path}")
+        self._clear_results()
+        self.main_stack.setCurrentWidget(self.loading_widget)
+        self.loading_status_label.setText("Finding audio files...")
+        self.loading_spinner.start()
+        self.download_all_button.hide()
+        self.right_click_info_label.hide()
+        self.controller.scan_local_directory(path)
+        self.file_watcher.addPath(path)
 
     @pyqtSlot(dict)
     def on_scan_results(self, result):
@@ -573,10 +640,8 @@ class LyricsDownloaderPage(QWidget):
             self.processed_files += len(result['data'])
             self.loading_status_label.setText(f"Processing {self.processed_files}/{self.total_files_to_scan} files...")
             for track in result['data']:
-                dir_path = os.path.dirname(track['filepath'])
-                if dir_path not in self.scanned_data:
-                    self.scanned_data[dir_path] = []
-                self.scanned_data[dir_path].append(track)
+                track['message'] = None
+                self.scanned_data.setdefault(os.path.dirname(track['filepath']), []).append(track)
         elif result['type'] == 'complete':
             self._build_ui_from_scan_data()
         elif result['type'] == 'error':
@@ -588,53 +653,39 @@ class LyricsDownloaderPage(QWidget):
         self.main_stack.setCurrentWidget(self.scroll_area)
         self.directory_label.setText(f"Current Folder: {self.current_path}")
         self.results_container.setUpdatesEnabled(False)
-        
         if self.scanned_data:
             self.right_click_info_label.show()
 
-        for dir_path in sorted(self.scanned_data.keys()):
+        for dir_path in sorted(self.scanned_data):
             tracks = self.scanned_data[dir_path]
-            display_path = self._get_display_path(dir_path)
-            
-            header = StickyHeader(display_path)
+            header = StickyHeader(self._get_display_path(dir_path))
             self.results_layout.addWidget(header)
-            
+
             container = QWidget()
             container.setStyleSheet("background: transparent; border: none;")
             container_layout = QVBoxLayout(container)
             container_layout.setContentsMargins(15, 0, 15, 0)
             container_layout.setSpacing(0)
+            container.setMaximumHeight(0)
             self.results_layout.addWidget(container)
-            
-            cards = [LocalTrackCard(t) for t in tracks]
-            found_count = 0
-            for card in cards:
-                card.get_lyrics_requested.connect(self._on_get_lyrics_requested)
-                container_layout.addWidget(card)
-                self.card_widgets[card.track_info['filepath']] = card
-                if card.track_info['has_lyrics']:
-                    found_count += 1
-            
+
+            found_count = sum(1 for t in tracks if t['has_lyrics'])
             missing_count = len(tracks) - found_count
             self.missing_lyrics_count += missing_count
-            
-            container.adjustSize()
-            full_height = container.sizeHint().height()
-            self.directory_widgets[header] = {
-                'container': container, 'cards': cards, 'is_expanded': False, 
+            for track in tracks:
+                self.tracks[track['filepath']] = track
+            self.sections[dir_path] = {
+                'header': header, 'container': container, 'layout': container_layout,
+                'filepaths': [t['filepath'] for t in tracks], 'built': 0, 'is_expanded': False,
                 'missing_count': missing_count, 'found_count': found_count, 'total_count': len(tracks),
-                'full_height': full_height, 'dir_path': dir_path
+                'queued_total': 0, 'queued_done': 0,
             }
-            
             header.update_status_tag(found_count, len(tracks))
             header.update_download_action(missing_count)
-            
-            header.clicked.connect(lambda h=header: self._toggle_section(h))
-            header.download_clicked.connect(lambda h=header: self._on_download_all_section(h))
-            header.remove_requested.connect(lambda h=header: self._remove_section(h))
-            header.open_folder_requested.connect(lambda h=header: self._open_section_folder(h))
-            
-            container.setMaximumHeight(0)
+            header.clicked.connect(lambda d=dir_path: self._toggle_section(d))
+            header.download_clicked.connect(lambda d=dir_path: self._on_download_all_section(d))
+            header.remove_requested.connect(lambda d=dir_path: self._remove_section(d))
+            header.open_folder_requested.connect(lambda d=dir_path: self._open_directory(d))
 
         self.results_container.setUpdatesEnabled(True)
         self.update_download_all_button()
@@ -645,149 +696,190 @@ class LyricsDownloaderPage(QWidget):
             return rel_path if rel_path != '.' else f"{os.path.basename(self.current_path)} [Root]"
         return dir_path
 
-    def _toggle_section(self, header):
-        info = self.directory_widgets[header]
+    def _toggle_section(self, dir_path):
+        info = self.sections.get(dir_path)
+        if not info:
+            return
         container = info['container']
         is_expanding = not info['is_expanded']
         info['is_expanded'] = is_expanding
-        header.set_expanded(is_expanding)
+        info['header'].set_expanded(is_expanding)
+        if is_expanding and info['built'] < len(info['filepaths']) and dir_path not in self._build_jobs:
+            self._build_jobs.append(dir_path)
+            self._build_timer.start()
 
-        container.setUpdatesEnabled(False)
-        
         if not hasattr(container, 'animation'):
             container.animation = QPropertyAnimation(container, b"maximumHeight")
             container.animation.setDuration(300)
             container.animation.setEasingCurve(QEasingCurve.Type.OutQuart)
-            container.animation.finished.connect(lambda: container.setUpdatesEnabled(True))
-
-        if is_expanding and not hasattr(info, 'calculated_height'):
-            container.adjustSize()
-            info['calculated_height'] = container.sizeHint().height()
-            info['full_height'] = info['calculated_height']
-
         container.animation.stop()
         container.animation.setStartValue(container.maximumHeight())
-        container.animation.setEndValue(info['full_height'] if is_expanding else 0)
+        container.animation.setEndValue(len(info['filepaths']) * LocalTrackCard.HEIGHT if is_expanding else 0)
         container.animation.start()
+
+    def _build_next_batch(self):
+        remaining = 40
+        while self._build_jobs and remaining:
+            dir_path = self._build_jobs[0]
+            info = self.sections.get(dir_path)
+            if not info or info['built'] >= len(info['filepaths']):
+                self._build_jobs.popleft()
+                continue
+            info['container'].setUpdatesEnabled(False)
+            while info['built'] < len(info['filepaths']) and remaining:
+                filepath = info['filepaths'][info['built']]
+                info['built'] += 1
+                remaining -= 1
+                track = self.tracks.get(filepath)
+                if track is None:
+                    continue
+                card = LocalTrackCard(track)
+                card.get_lyrics_requested.connect(self._on_get_lyrics_requested)
+                info['layout'].addWidget(card)
+                self.card_widgets[filepath] = card
+            info['container'].setUpdatesEnabled(True)
+        if not self._build_jobs:
+            self._build_timer.stop()
 
     def update_download_all_button(self):
         text = f"Download All Missing ({self.missing_lyrics_count})" if self.missing_lyrics_count > 0 else ""
         self.download_all_button.setText(text)
         self.download_all_button.setVisible(bool(self.missing_lyrics_count))
 
-    @pyqtSlot(dict)
-    def _on_get_lyrics_requested(self, track_info):
-        self._ignore_watcher = True
-        self.controller.download_lyrics_for_track(track_info, track_info['filepath'])
-    
+    def _busy(self):
+        return bool(self._queue or self._inflight)
+
+    def _set_track_message(self, filepath, message):
+        track = self.tracks.get(filepath)
+        if track is None:
+            return
+        track['message'] = message
+        card = self.card_widgets.get(filepath)
+        if card is not None:
+            card.update_status(track['has_lyrics'], message)
+
+    def _enqueue(self, filepaths, front=False):
+        added = []
+        for filepath in filepaths:
+            track = self.tracks.get(filepath)
+            if track is None or track['has_lyrics'] or filepath in self._queued or filepath in self._inflight:
+                continue
+            added.append(filepath)
+        if not added:
+            return
+        self._watcher_reset_timer.stop()
+        if front:
+            self._queue.extendleft(reversed(added))
+        else:
+            self._queue.extend(added)
+        self._queued.update(added)
+        for filepath in added:
+            self._set_track_message(filepath, "Queued")
+            info = self.sections.get(os.path.dirname(filepath))
+            if info:
+                info['queued_total'] += 1
+                self._update_section_progress(info)
+        self._run_total += len(added)
+        self.global_progress_bar.setMaximum(self._run_total)
+        self.global_progress_bar.setValue(self._run_done)
+        self.global_progress_bar.show()
+        self._pump_queue()
+
     def _pump_queue(self):
-        while self._pending_cards and self._inflight < self._max_concurrent:
-            card = self._pending_cards.pop(0)
-            self._inflight += 1
-            card._get_lyrics()
+        while self._queue and len(self._inflight) < self._max_concurrent:
+            filepath = self._queue.popleft()
+            self._queued.discard(filepath)
+            track = self.tracks.get(filepath)
+            if track is None:
+                continue
+            self._inflight.add(filepath)
+            self._set_track_message(filepath, "Downloading...")
+            request = {key: track.get(key) for key in ('filepath', 'title', 'artist', 'album')}
+            request['options'] = self.lyrics_options()
+            self.controller.download_lyrics_for_track(request, filepath)
+
+    def _update_section_progress(self, info):
+        header = info['header']
+        if info['queued_done'] < info['queued_total']:
+            header.set_downloading_state(True)
+            header.update_progress_text(f"{info['queued_done']}/{info['queued_total']}")
+        else:
+            info['queued_total'] = info['queued_done'] = 0
+            header.set_downloading_state(False)
+            header.update_download_action(info['missing_count'])
+
+    @pyqtSlot(str)
+    def _on_get_lyrics_requested(self, filepath):
+        self._enqueue([filepath], front=True)
 
     def _on_download_all_clicked(self):
-        self._ignore_watcher = True
-        cards_to_download = [c for c in self.card_widgets.values() if not c.track_info['has_lyrics']]
-        if not cards_to_download:
-            return
+        self._enqueue([fp for fp, track in self.tracks.items() if not track['has_lyrics']])
 
-        self.global_download_progress = {'processed': 0, 'total': len(cards_to_download)}
-        self.global_progress_bar.setMaximum(len(cards_to_download))
-        self.global_progress_bar.setValue(0)
-        self.global_progress_bar.show()
-        
-        self._pending_cards = list(cards_to_download)
-        self._pump_queue()
-    
-    def _on_download_all_section(self, header):
-        info = self.directory_widgets.get(header)
+    def _on_download_all_section(self, dir_path):
+        info = self.sections.get(dir_path)
         if info:
-            self._ignore_watcher = True
-            missing_cards = [c for c in info['cards'] if not c.track_info['has_lyrics']]
-            if missing_cards:
-                header.set_downloading_state(True)
-                self.download_progress[header] = {'processed': 0, 'total': len(missing_cards)}
-                
-                self._pending_cards.extend(missing_cards)
-                if not self.global_download_progress:
-                    self.global_download_progress = {'processed': 0, 'total': 0}
-                    self.global_progress_bar.show()
-                
-                self.global_download_progress['total'] += len(missing_cards)
-                self.global_progress_bar.setMaximum(self.global_download_progress['total'])
-                
-                self._pump_queue()
+            self._enqueue([fp for fp in info['filepaths'] if fp in self.tracks and not self.tracks[fp]['has_lyrics']])
 
     @pyqtSlot(str, bool, str)
     def on_lyrics_download_finished(self, filepath, success, message):
-        self._watcher_reset_timer.start(2000)
-        if self._inflight > 0:
-            self._inflight -= 1
-        self._pump_queue()
-
-        if filepath not in self.card_widgets:
-            return
-        
-        card = self.card_widgets[filepath]
-        header = next((h for h, i in self.directory_widgets.items() if card in i['cards']), None)
-        if not header:
-            return
-
-        if self.global_download_progress:
-            self.global_download_progress['processed'] += 1
-            self.global_progress_bar.setValue(self.global_download_progress['processed'])
-            if self.global_download_progress['processed'] >= self.global_download_progress['total']:
-                QTimer.singleShot(1000, self.global_progress_bar.hide)
-                self.global_download_progress = {}
-
-        info = self.directory_widgets[header]
-        if success and not card.track_info['has_lyrics']:
-            self.missing_lyrics_count = max(0, self.missing_lyrics_count - 1)
-            info['missing_count'] = max(0, info['missing_count'] - 1)
-            info['found_count'] += 1
-            header.update_download_action(info['missing_count'])
-            header.update_status_tag(info['found_count'], info['total_count'])
-        
-        if header in self.download_progress:
-            progress = self.download_progress[header]
-            progress['processed'] += 1
-            header.update_progress_text(f"{progress['processed']}/{progress['total']}")
-            if progress['processed'] >= progress['total']:
-                header.set_downloading_state(False)
-                header.update_download_action(info['missing_count'])
-                del self.download_progress[header]
-
+        counted = filepath in self._inflight
+        self._inflight.discard(filepath)
+        track = self.tracks.get(filepath)
+        info = self.sections.get(os.path.dirname(filepath))
+        if track is not None:
+            if success and not track['has_lyrics'] and info:
+                self.missing_lyrics_count = max(0, self.missing_lyrics_count - 1)
+                info['missing_count'] = max(0, info['missing_count'] - 1)
+                info['found_count'] += 1
+                info['header'].update_status_tag(info['found_count'], info['total_count'])
+            track['has_lyrics'] = track['has_lyrics'] or success
+            self._set_track_message(filepath, message.title())
+        if counted:
+            self._run_done += 1
+            self.global_progress_bar.setValue(self._run_done)
+            if info:
+                info['queued_done'] += 1
+                self._update_section_progress(info)
         self.update_download_all_button()
-        card.update_status(success, message.title())
+        self._pump_queue()
+        if not self._busy():
+            self._run_total = self._run_done = 0
+            QTimer.singleShot(1000, self._hide_progress_if_idle)
+            self._watcher_reset_timer.start(2000)
+
+    def _hide_progress_if_idle(self):
+        if not self._busy():
+            self.global_progress_bar.hide()
 
     def _clear_results(self):
-        for info in self.directory_widgets.values():
+        self._build_timer.stop()
+        self._build_jobs.clear()
+        for info in self.sections.values():
             if hasattr(info['container'], 'animation'):
                 info['container'].animation.stop()
         while self.results_layout.count():
             item = self.results_layout.takeAt(0)
             if widget := item.widget():
                 widget.deleteLater()
+        self.tracks.clear()
+        self.sections.clear()
         self.card_widgets.clear()
-        self.directory_widgets.clear()
         self.scanned_data.clear()
-        self.download_progress.clear()
+        self._queue.clear()
+        self._queued.clear()
+        self._inflight.clear()
+        self._run_total = self._run_done = 0
         self.processed_files = self.total_files_to_scan = self.missing_lyrics_count = 0
         self.global_progress_bar.hide()
-        self.global_download_progress = {}
         self.right_click_info_label.hide()
 
     def _on_directory_changed(self, path):
-        if not self._ignore_watcher and path == self.current_path:
+        if path == self.current_path and not self._busy() and not self._watcher_reset_timer.isActive():
             self._watcher_debounce_timer.start()
-            
+
     def _perform_rescan(self):
-        print("Rescanning folder for changes...")
-        self.scan_local_folder()
-        
-    def _unignore_watcher(self):
-        self._ignore_watcher = False
+        if self.current_path and not self._busy():
+            self._start_scan(self.current_path)
 
     def _open_directory(self, path):
         if not os.path.isdir(path):
@@ -801,32 +893,27 @@ class LyricsDownloaderPage(QWidget):
         except Exception as e:
             print(f"Error opening directory {path}: {e}")
 
-    def _open_section_folder(self, header):
-        info = self.directory_widgets.get(header)
-        if info and 'dir_path' in info:
-            self._open_directory(info['dir_path'])
-
-    def _remove_section(self, header):
-        info = self.directory_widgets.pop(header, None)
+    def _remove_section(self, dir_path):
+        info = self.sections.pop(dir_path, None)
         if not info:
             return
-
-        self.missing_lyrics_count -= info.get('missing_count', 0)
+        removed = set(info['filepaths'])
+        pending = [fp for fp in self._queue if fp in removed]
+        if pending:
+            self._queue = deque(fp for fp in self._queue if fp not in removed)
+            self._queued.difference_update(pending)
+            self._run_total = max(self._run_done, self._run_total - len(pending))
+            self.global_progress_bar.setMaximum(max(1, self._run_total))
+        for filepath in removed:
+            self.tracks.pop(filepath, None)
+            self.card_widgets.pop(filepath, None)
+        self.scanned_data.pop(dir_path, None)
+        self.missing_lyrics_count = max(0, self.missing_lyrics_count - info['missing_count'])
         self.update_download_all_button()
-
-        dir_path = info.get('dir_path')
-        if dir_path:
-            self.scanned_data.pop(dir_path, None)
-        
-        for card in info.get('cards', []):
-            filepath = card.track_info.get('filepath')
-            if filepath:
-                self.card_widgets.pop(filepath, None)
-
-        if container := info.get('container'):
-            container.deleteLater()
-        header.deleteLater()
-
-        if not self.directory_widgets:
+        info['container'].deleteLater()
+        info['header'].deleteLater()
+        if not self._busy():
+            self.global_progress_bar.hide()
+        if not self.sections:
             self.main_stack.setCurrentWidget(self.placeholder_widget)
             self.right_click_info_label.hide()

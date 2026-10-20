@@ -5,11 +5,13 @@ import os
 import traceback
 import atexit
 from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import QSettings
 from PyQt6.QtGui import QFontDatabase, QFont, QIcon
 from core.app import AppController
+from core.config import sync_storefront
 from ui.main_window import MainWindow
 from ui.main_window.dialogs import UpdateDialog 
+from core.config import config_path, upgrade_config
+from core.resources import app_dir
 
 
 APP_FONT_FAMILY = "Inter Tight"
@@ -94,7 +96,7 @@ DARK_STYLESHEET = f"""
     }}
 """
 
-VERSION = "1.0.2"
+VERSION = "1.1.0"
 REPO_OWNER = "rwnk-12"
 REPO_NAME = "apmyx-gui"
 RELEASES_URL = f"https://github.com/{REPO_OWNER}/{REPO_NAME}/releases"
@@ -112,14 +114,12 @@ def resource_path(relative_path):
 
 def setup_logging():
 
-    log_formatter = logging.Formatter('[PYTHON] %(asctime)s - %(levelname)s - %(message)s')
-
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(log_formatter)
-
-    root_logger = logging.getLogger()
-    root_logger.setLevel(logging.INFO)
-    root_logger.addHandler(console_handler)
+    logging.basicConfig(
+        level=logging.INFO,
+        format='[PYTHON] %(asctime)s - %(levelname)s - %(message)s',
+        stream=sys.stdout,
+        force=True,
+    )
 
     def handle_exception(exc_type, exc_value, exc_traceback):
 
@@ -160,8 +160,8 @@ def load_config():
     
     default_storefront = 'us'
     try:
-        with open('config.yaml', 'r') as f:
-            config = yaml.safe_load(f)
+        with open(config_path(), 'r', encoding='utf-8') as f:
+            config = sync_storefront(yaml.safe_load(f) or {})
             storefront = config.get('storefront', default_storefront)
             logging.info(f"Loaded storefront '{storefront}' from config.yaml")
             return storefront.lower()
@@ -180,13 +180,17 @@ def final_cleanup():
 atexit.register(final_cleanup)
 
 if __name__ == "__main__":
-    
+    tools = app_dir() / "tools"
+    if tools.is_dir():
+        os.environ["PATH"] = str(tools) + os.pathsep + os.environ.get("PATH", "")
+
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
     setup_logging()
-    
+    upgrade_config()
+
     app = QApplication(sys.argv)
     
     app.setOrganizationName("rwnk-12")
@@ -220,12 +224,10 @@ if __name__ == "__main__":
     window = MainWindow(controller)
     window.show()
     
-    def handle_update_check(latest, current, url):
-        if controller.is_newer_version(latest, current) and latest:
-            dialog = UpdateDialog(latest, current, url, window)
-            dialog.exec()
+    def handle_update(release):
+        UpdateDialog(release, VERSION, controller.session, window).exec()
 
-    controller.updatecheckfinished.connect(handle_update_check)
+    controller.update_available.connect(handle_update)
     controller.checkforupdates()
 
     sys.exit(app.exec())

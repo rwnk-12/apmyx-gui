@@ -2,7 +2,6 @@ import requests
 import json
 import re
 from xml.etree import ElementTree
-import datetime
 
 def get_lyrics(song_id, storefront, token, media_user_token, lrc_format):
 

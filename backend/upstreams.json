@@ -1,0 +1,5 @@
+{
+  "applemusicdecrypt": {"path": "providers/applemusicdecrypt", "url": "https://github.com/WorldObservationLog/AppleMusicDecrypt", "branch": "v3", "revision": "0301e8e4123cf3d7f8477ecfb3ec26ce05871574", "package": "src renamed to applemusicdecrypt to avoid GUI namespace collisions"},
+  "gamdl": {"path": "providers/gamdl", "url": "https://github.com/glomatico/gamdl", "revision": "bc3bcd25ed61dcdb78c28ffb0ef32053b618c7e3"},
+  "legacy": {"path": "providers/legacy", "source": "Original apmyx-gui backend; relocated without replacing its download pipeline"}
+}

@@ -1,14 +1,27 @@
 import json
-import logging
+import copy
 import os
+import tempfile
+from .bridge_client import BackendError, consume, request_for, snapshot, start_process, terminate_tree
+from backend.shared.progress import gui_progress
+import logging
 import re
-import subprocess
-import sys
 import time
 import threading
 import yaml
 
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot, QRunnable, QThreadPool
+from .config import config_path
+
+
+def saved_message(folders):
+    if not folders:
+        return "Download complete."
+    try:
+        folder = os.path.commonpath(folders)
+    except ValueError:
+        folder = folders[-1]
+    return f"Saved to {folder}"
 
 class DownloadJobRunner(QRunnable):
 
@@ -30,8 +43,8 @@ class DownloadJobRunner(QRunnable):
         q = (quality_preference or "").strip().lower()
         aac_aliases = {"aac", "aac-lc", "aac_stereo", "aac-stereo", "audio-stereo", "aac-binaural", "aac_downmix", "aac-downmix"}
         self.is_aac = (q in aac_aliases) or q.startswith("aac")
-        self.is_mv = "--music-video" in command
-        self.is_single_song = "--song" in command
+        self.is_mv = '/music-video/' in original_url
+        self.is_single_song = '/song/' in original_url or bool(re.search(r'[?&]i=\d+', original_url))
         self.is_playlist = is_playlist
         
  
@@ -79,8 +92,7 @@ class DownloadJobRunner(QRunnable):
         ]
 
     def _is_decryptor_connection_failure(self, line: str) -> bool:
-        l = line.lower()
-        return "127.0.0.1:10020" in l and "actively refused" in l
+        return "wrapper_unavailable" in line.lower()
 
     def _fmt_bytes(self, n: int) -> str:
         if n is None or n < 0:
@@ -108,6 +120,14 @@ class DownloadJobRunner(QRunnable):
         msg = line.strip()
         if not msg:
             return
+        if msg.startswith("AMDL_PROGRESS::"):
+            try:
+                data = json.loads(msg.split("::", 1)[1])
+                if data.get("schema_version") == 1:
+                    self.process_progress(data)
+                    return
+            except ValueError:
+                pass
 
         dim_match = self.video_dim_regex.match(msg)
         if dim_match:
@@ -115,13 +135,19 @@ class DownloadJobRunner(QRunnable):
             self.signals.stream_label.emit(self.job_id, dimension_str)
             return
 
-        log_prefix = "[Go Backend ERR]" if is_stderr else "[Go Backend]"
-        logging.info(f"{log_prefix} {msg}")
+        backend = self.command.get("wrapper", "legacy") if isinstance(self.command, dict) else "legacy"
+        log_prefix = f"[{backend} Backend{' ERR' if is_stderr else ''}]"
+        if msg.startswith('AMDL_PROGRESS::') and '"track_progress"' in msg:
+            logging.debug("%s %s", log_prefix, msg)
+        else:
+            logging.info("%s %s", log_prefix, msg)
 
         if is_stderr:
             if self._is_decryptor_connection_failure(msg):
                 logging.warning(f"PAUSE TRIGGER: Detected decryptor connection failure for job {self.job_id}.")
                 self._pause_triggered = True
+                self.error_lines.append(msg)
+                self.signals.error_line.emit(self.job_id, msg)
                 self.signals.pause_queue_requested.emit(self.job_id)
                 return
 
@@ -171,6 +197,8 @@ class DownloadJobRunner(QRunnable):
                     self.current_phase = "DOWNLOADING"
                     self.last_download_percent = 0
                     self.last_decrypt_percent = 0
+                    self.total_bytes = None
+                    self.downloaded_bytes = 0
                     if self.is_mv:
                         self.mv_phase = "DOWNLOADING"
                     
@@ -182,7 +210,7 @@ class DownloadJobRunner(QRunnable):
                 elif progress_type == "track_skip":
                     skipped_name = progress_data.get("name", "Unknown Track")
                     self.skipped_tracks.append(skipped_name)
-                    self.signals.track_skipped.emit(self.job_id, skipped_name)
+                    self.signals.track_skipped.emit(self.job_id, skipped_name, str(progress_data.get("reason") or ""))
                     self.completed_tracks += 1
 
                 elif progress_type == "trackstream":
@@ -204,7 +232,24 @@ class DownloadJobRunner(QRunnable):
 
                     display_track_num = self.completed_tracks + 1
                     status_text = ""
-                    if self.is_mv:
+                    phase = progress_data.get("phase")
+                    phase_labels = {
+                        "downloading": "Downloading", "decrypting": "Decrypting",
+                        "remuxing": "Remuxing", "tagging": "Writing tags",
+                    }
+                    explicit_phase = phase in phase_labels and "phase_percent" in progress_data
+                    if explicit_phase:
+                        self.current_phase = phase.upper()
+                        phase_percent = progress_data["phase_percent"]
+                        percent_text = f" ({phase_percent:.0f}%)" if phase_percent is not None else "..."
+                        status_text = f"({display_track_num}/{self.total_tracks}) {phase_labels[phase]}{percent_text}: {self.current_track_name}"
+                        tb = progress_data.get("total_bytes")
+                        db = progress_data.get("downloaded_bytes")
+                        if isinstance(tb, (int, float)) and tb > 0:
+                            self.total_bytes = int(tb)
+                        if isinstance(db, (int, float)):
+                            self.downloaded_bytes = int(db)
+                    elif self.is_mv:
                         percent = progress_data.get("percent", 0)
                         if percent >= 90: 
                             self.mv_phase = "REMUXING"
@@ -223,7 +268,7 @@ class DownloadJobRunner(QRunnable):
                     else:
                         status_text = f"({display_track_num}/{self.total_tracks}) Downloading ({percent_i}%): {self.current_track_name}"
 
-                    if self.total_bytes:
+                    if self.total_bytes and not explicit_phase:
                         if self.is_mv:
                             if self.mv_phase in ("PROCESSING", "REMUXING"):
                                 self.downloaded_bytes = int(self.total_bytes)
@@ -247,7 +292,8 @@ class DownloadJobRunner(QRunnable):
                     self._last_int_percent = percent_i
                     self._last_int_overall = overall_i
 
-                    self._emit_progress(status_text, percent_f, overall_f, force=force_emit)
+                    track_percent = -1.0 if progress_data.get("indeterminate") else percent_f
+                    self._emit_progress(status_text, track_percent, overall_f, force=force_emit)
 
                 elif progress_type == "track_complete":
                     self.completed_tracks += 1
@@ -327,90 +373,67 @@ class DownloadJobRunner(QRunnable):
                 self._emit_progress(status_text, track_progress, overall_progress)
 
     @pyqtSlot()
+    def process_progress(self, data):
+        if data.get("schema_version") != 1:
+            self.process_line("AMDL_PROGRESS::" + json.dumps(data), False)
+            return
+        self.saw_progress = True
+        kind = data.get("type")
+        self.total_tracks = data.get("total_tracks", self.total_tracks)
+        self.current_track_name = data.get("name", self.current_track_name)
+        if kind == "trackstream":
+            self.signals.stream_label.emit(self.job_id, data.get("streamgroup", ""))
+            return
+        if kind == "track_skip":
+            self.skipped_tracks.append(self.current_track_name)
+            self.signals.track_skipped.emit(self.job_id, self.current_track_name, str(data.get("reason") or ""))
+        if kind in {"track_start", "track_progress", "track_complete", "track_skip", "track_error"}:
+            self.current_phase = data.get("phase", "preparing").upper()
+            self.downloaded_bytes = data.get("downloaded_bytes", self.downloaded_bytes)
+            self.total_bytes = data.get("total_bytes", self.total_bytes)
+            self._emit_progress(*gui_progress(data), force=True)
+
     def run(self):
         try:
             self.signals.fetching.emit(self.job_id, "Fetching details...")
-            process = subprocess.Popen(
-                self.command,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding='utf-8',
-                errors='replace',
-                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-            )
-
-            self.worker_ref.set_current_process(process)
             self.started_at = time.monotonic()
-            output_lock = threading.Lock()
+            with tempfile.TemporaryDirectory(prefix="apmyx-download-") as scratch:
+                process = start_process(self.command, scratch)
+                self.worker_ref.set_current_process(process)
 
-            def stream_reader(stream, is_stderr):
-                for line in iter(stream.readline, ''):
-                    if self.worker_ref.was_terminated_intentionally and process.poll() is not None:
-                        break
-                    if self._pause_triggered:
-                        break
-                    with output_lock:
-                        self.process_line(line, is_stderr)
-                stream.close()
+                saved = []
 
-            stdout_thread = threading.Thread(target=stream_reader, args=(process.stdout, False), daemon=True)
-            stderr_thread = threading.Thread(target=stream_reader, args=(process.stderr, True), daemon=True)
+                def event(record):
+                    if record["event"] == "progress":
+                        self.process_progress(record["data"])
+                    elif record["event"] == "artifact" and (record.get("data") or {}).get("path"):
+                        saved.append(os.path.dirname(record["data"]["path"]))
+                    elif record["event"] == "log":
+                        message = record.get("message", "")
+                        if record.get("level") == "error":
+                            self.error_lines.append(message)
+                            self.signals.error_line.emit(self.job_id, message)
 
-            stdout_thread.start()
-            stderr_thread.start()
-
-            return_code = process.wait()
-
-            if self._pause_triggered:
-       
-                return
-
-            if not self.worker_ref.was_terminated_intentionally:
-                stdout_thread.join(timeout=2)
-                stderr_thread.join(timeout=2)
-
-            with self._progress_lock:
-                if self._latest_progress_data:
-                    self.signals.progress.emit(self.job_id, *self._latest_progress_data)
-
-            elapsed_sec = int(time.monotonic() - self.started_at) if self.started_at else 0
-
-            def _fmt_duration(seconds: int) -> str:
-                h, rem = divmod(max(0, seconds), 3600)
-                m, s = divmod(rem, 60)
-                parts = []
-                if h: parts.append(f"{h}h")
-                if m: parts.append(f"{m}m")
-                parts.append(f"{s}s")
-                return " ".join(parts)
-
-            elapsed_str = _fmt_duration(elapsed_sec)
-
+                consume(process, event, self.command["request_id"])
+            self.signals.finished.emit(self.job_id, True, saved_message(saved), self.skipped_tracks)
+        except BackendError as exc:
             if self.worker_ref.was_terminated_intentionally:
-                self.signals.finished.emit(self.job_id, False, f"Cancelled after {elapsed_str}.", [])
-            elif return_code != 0:
-                final_error = self.error_lines[-1] if self.error_lines else f"Backend exited with code {return_code}."
-                self.signals.finished.emit(self.job_id, False, f"Failed after {elapsed_str}. {final_error}", [])
-            elif not self.saw_progress:
-                final_error = self.error_lines[-1] if self.error_lines else "No progress reported; download may have failed."
-                self.signals.finished.emit(self.job_id, False, f"Failed after {elapsed_str}. {final_error}", [])
+                self.signals.finished.emit(self.job_id, False, "Cancelled.", self.skipped_tracks)
+            elif exc.retryable and exc.code == "wrapper_unavailable":
+                self._pause_triggered = True
+                self.signals.error_line.emit(self.job_id, "wrapper_unavailable: " + str(exc))
+                self.signals.pause_queue_requested.emit(self.job_id)
             else:
-                if len(self.skipped_tracks) > 0:
-                    self.signals.finished.emit(self.job_id, True, f"Done in {elapsed_str} • {len(self.skipped_tracks)} skipped.", self.skipped_tracks)
-                else:
-                    self.signals.finished.emit(self.job_id, True, f"Done in {elapsed_str}.", [])
-
-        except Exception as e:
-            logging.error(f"Exception in DownloadJobRunner for job {self.job_id}: {e}")
-            self.signals.finished.emit(self.job_id, False, "An unexpected error occurred.", [])
+                self.signals.finished.emit(self.job_id, False, str(exc), self.skipped_tracks)
+        except Exception as exc:
+            self.signals.finished.emit(self.job_id, False, str(exc), self.skipped_tracks)
         finally:
             self.worker_ref.set_current_process(None)
 
 class DownloadWorkerSignals(QObject):
     fetching = pyqtSignal(int, str)
     progress = pyqtSignal(int, str, float, float)
-    track_skipped = pyqtSignal(int, str)
+    track_skipped = pyqtSignal(int, str, str)
     finished = pyqtSignal(int, bool, str, list)
     error_line = pyqtSignal(int, str)
     stream_label = pyqtSignal(int, str)
@@ -419,18 +442,16 @@ class DownloadWorkerSignals(QObject):
 class DownloadWorker(QObject):
     job_fetching = pyqtSignal(int, str)
     job_progress = pyqtSignal(int, str, float, float)
-    track_skipped = pyqtSignal(int, str)
+    track_skipped = pyqtSignal(int, str, str)
     job_finished = pyqtSignal(int, bool, str, list)
-    queue_status_update = pyqtSignal(int)
     job_cancelled = pyqtSignal(int)
     job_error_line = pyqtSignal(int, str)
     job_stream_label = pyqtSignal(int, str)
     queue_has_been_paused = pyqtSignal(list)
     job_started = pyqtSignal(int)
 
-    def __init__(self, downloader_executable, controller):
+    def __init__(self, controller):
         super().__init__()
-        self.downloader_executable = downloader_executable
         self.controller = controller
         self.download_queue = []
         self.is_busy = False
@@ -449,7 +470,7 @@ class DownloadWorker(QObject):
         self.was_terminated_intentionally = True
         if self.current_process and self.current_process.poll() is None:
             logging.info(f"Sending termination signal to process for job {self.current_job_id}")
-            self.current_process.terminate()
+            terminate_tree(self.current_process)
 
     def pause_queue(self):
         if not self.queue_paused:
@@ -470,7 +491,6 @@ class DownloadWorker(QObject):
             self.job_cancelled.emit(job['job_id'])
         if self.is_busy:
             self.stop_current_job()
-        self.queue_status_update.emit(len(self.download_queue))
 
     def cancel_job(self, job_id: int) -> bool:
         removed = False
@@ -485,7 +505,6 @@ class DownloadWorker(QObject):
         self.download_queue = [job for job in self.download_queue if job['job_id'] != job_id]
         if len(self.download_queue) < initial_len:
             logging.info(f"Removed job {job_id} from queue before it started.")
-            self.queue_status_update.emit(len(self.download_queue))
             removed = True
 
 
@@ -502,20 +521,24 @@ class DownloadWorker(QObject):
         return bool(self.download_queue)
 
     @pyqtSlot(int, dict, str, str)
-    def add_job_to_queue(self, job_id, media_data, quality_preference, original_url):
+    def add_job_to_queue(self, job_id, media_data, quality_preference, original_url, backend_settings=None):
+        saved = backend_settings if backend_settings is not None else media_data.get('_backend_settings')
+        settings = snapshot({'wrapper': 'legacy', **saved} if saved is not None else self._get_latest_config())
+        media_data = copy.deepcopy(media_data)
+        media_data['_backend_settings'] = settings
         job = {
+            'backend_settings': settings,
             'job_id': job_id,
             'media_data': media_data,
             'quality': quality_preference,
             'original_url': original_url
         }
         self.download_queue.append(job)
-        self.queue_status_update.emit(len(self.download_queue))
         self._process_queue()
 
     def _get_latest_config(self):
         try:
-            with open('config.yaml', 'r', encoding='utf-8') as f:
+            with open(config_path(), 'r', encoding='utf-8') as f:
                 return yaml.safe_load(f) or {}
         except FileNotFoundError:
             logging.warning("config.yaml not found when starting job. Using defaults.")
@@ -534,7 +557,6 @@ class DownloadWorker(QObject):
         self.current_job_id = job['job_id']
         self.current_job_dict = job
         self.job_started.emit(self.current_job_id)
-        self.queue_status_update.emit(len(self.download_queue))
 
         try:
             url_to_download = job['original_url']
@@ -545,48 +567,12 @@ class DownloadWorker(QObject):
             if total_tracks == 0:
                 raise ValueError("Media data contains no tracks.")
 
-            is_song_url = ("/song/" in url_to_download) or re.search(r'[?&]i=\d+', url_to_download)
-            is_mv_url = "/music-video/" in url_to_download
             is_playlist_url = "/playlist/" in url_to_download
 
-            command = [self.downloader_executable]
-            
-            latest_config = self._get_latest_config()
-            
-   
-            allowed_flags = {
-                'aac-save-folder', 'alac-save-folder', 'atmos-save-folder', 'mv-save-folder',
-                'album-folder-format', 'artist-folder-format', 'playlist-folder-format',
-                'song-file-format', 'mv-file-format', 'cover-format', 'cover-size', 'aac-type', 'alac-max',
-                'atmos-max', 'mv-audio-type', 'mv-max', 'decrypt-m3u8-port', 'get-m3u8-port',
-                'get-m3u8-mode', 'get-m3u8-from-device', 'apple-master-choice',
-                'explicit-choice', 'clean-choice', 'embed-cover', 'embed-lrc',
-                'save-lrc-file', 'lrc-type', 'lrc-format', 'save-artist-cover', 'save-animated-artwork',
-                'emby-animated-artwork', 'use-songinfo-for-playlist', 'dl-albumcover-for-playlist',
-                'json-output', 'language', 'limit-max', 'max-memory-limit', 'storefront',
-                'music-video', 'song', 'resolve-artist', 'authorization-token', 'media-user-token',
-                'create-curator-folder', 'atmos', 'aac', 'select', 'all-album', 'debug'
-            }
-  
-            for key, value in latest_config.items():
-                if key == 'tag-options': 
-                    continue
-                if key not in allowed_flags:
-                    continue
-                if isinstance(value, bool):
-                    if value: 
-                        command.append(f'--{key}')
-                elif value is not None:
-                    command.extend([f'--{key}', str(value)])
-
-            command.extend(["--codec-preference", quality_pref])
-            if is_mv_url: 
-                command.append("--music-video")
-            elif is_song_url: 
-                command.append("--song")
-            command.append(url_to_download)
-
-            logging.info(f"Executing Go backend with command: {' '.join(command)}")
+            settings = job.get('backend_settings', {'wrapper': 'legacy'})
+            track_ids = [str(track.get('trackData', track)['id']) for track in media_data.get('tracks', [])]
+            command = request_for('download', url_to_download, settings, quality=quality_pref,
+                                  track_ids=track_ids, media_data=media_data)
 
             runner = DownloadJobRunner(
                 job['job_id'], 
@@ -610,8 +596,7 @@ class DownloadWorker(QObject):
 
         except Exception as e:
             logging.error(f"Failed to start job {job['job_id']}: {e}")
-            self.job_finished.emit(job['job_id'], False, f"Error preparing job: {e}", [])
-            self._on_job_finished(job['job_id'], False, "", [])
+            self._on_job_finished(job['job_id'], False, f"Error preparing job: {e}", [])
 
     @pyqtSlot(int)
     def _handle_pause_request(self, job_id):

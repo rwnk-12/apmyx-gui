@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QLabel, QFrame, QPushButton, QSlider, QStyle
-from PyQt6.QtCore import pyqtSignal, pyqtSlot, QThreadPool, Qt, QPointF, QTimer, QPoint, QRectF
+from PyQt6.QtCore import pyqtSignal, pyqtSlot, QThreadPool, Qt, QPointF, QTimer, QRectF
 from PyQt6.QtGui import QPainter, QColor, QPen, QPixmap, QCursor, QPainterPath
 from ..search_widgets import MarqueeLabel, ImageFetcher, round_pixmap
 from ..search_cards import PlayButton

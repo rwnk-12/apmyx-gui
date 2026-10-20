@@ -1,0 +1,69 @@
+#!/bin/busybox sh
+/bin/busybox mkdir -p /proc /sys /dev
+/bin/busybox mount -t proc proc /proc
+/bin/busybox mount -t sysfs sysfs /sys
+/bin/busybox mount -t devtmpfs devtmpfs /dev
+/bin/busybox mkdir -p /dev/pts
+/bin/busybox mount -t devpts devpts /dev/pts
+/bin/busybox hostname wrapper-lite
+/bin/busybox stty -echo < /dev/console
+/bin/busybox sysctl -w kernel.ctrl-alt-del=0
+for module in e1000 virtio virtio_ring virtio_pci_modern_dev virtio_pci_legacy_dev virtio_pci virtio_blk crc16 crc32c_generic jbd2 mbcache ext4; do
+    /bin/busybox insmod "/$module.ko" 2>/dev/null || true
+done
+/bin/busybox ip link set lo up
+/bin/busybox ip link set eth0 up
+/bin/busybox ip addr add 10.0.2.15/24 dev eth0
+/bin/busybox ip route add default via 10.0.2.2 dev eth0
+/bin/busybox mkdir -p /data
+for attempt in 1 2 3 4 5 6 7 8 9 10; do
+    [ -e /dev/vda ] && break
+    /bin/busybox sleep 1
+done
+if ! /bin/busybox mount -t ext4 /dev/vda /data; then
+    echo '[apmyx] session-disk-failed'
+    /bin/busybox poweroff -f
+    exit 1
+fi
+/bin/busybox rm -f /data/.lite-qemu-args /data/2fa.txt
+/bin/busybox chmod +x /system/bin/lite /system/bin/linker64
+service_pid=
+shutdown() {
+    trap '' INT TERM
+    echo '[apmyx] shutting-down'
+    if [ -n "$service_pid" ]; then
+        /bin/busybox kill -TERM "$service_pid" 2>/dev/null
+        ( /bin/busybox sleep 10; /bin/busybox kill -KILL "$service_pid" 2>/dev/null ) &
+        wait "$service_pid" 2>/dev/null
+        echo '[apmyx] service-stopped'
+    fi
+    /bin/busybox sync
+    /bin/busybox umount /data
+    /bin/busybox poweroff -f
+}
+trap shutdown INT TERM
+if /bin/busybox grep -q 'apmyx_login=1' /proc/cmdline; then
+    echo '[apmyx] credentials-ready'
+    IFS= read -r username
+    IFS= read -r password
+    /system/bin/lite --login "$username:$password" --base-dir /data < /dev/console &
+    service_pid=$!
+    username=
+    password=
+    wait "$service_pid"
+    result=$?
+    service_pid=
+    if [ "$result" -eq 0 ]; then
+        echo '[apmyx] login-complete'
+    else
+        echo '[apmyx] login-failed'
+    fi
+    /bin/busybox sync
+    /bin/busybox umount /data
+    /bin/busybox poweroff -f
+    exit "$result"
+fi
+/system/bin/lite --base-dir /data --host 0.0.0.0 --port 12340 --log-level warn &
+service_pid=$!
+wait "$service_pid"
+shutdown

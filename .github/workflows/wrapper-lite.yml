@@ -1,0 +1,115 @@
+name: wrapper-lite
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - scripts/wrappers/**
+      - setup-wrapper-lite-qemu.*
+      - .github/workflows/wrapper-lite.yml
+      - .github/ci/**
+  pull_request:
+    paths:
+      - scripts/wrappers/**
+      - setup-wrapper-lite-qemu.*
+      - .github/workflows/wrapper-lite.yml
+      - .github/ci/**
+  workflow_dispatch:
+
+concurrency:
+  group: wrapper-lite-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  posix:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-latest
+          - name: linux-aarch64
+            os: ubuntu-24.04-arm
+          - name: macos-arm64
+            os: macos-15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Allow KVM (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm || true
+          ls -la /dev/kvm || echo "No KVM on this runner, TCG will be used"
+
+      - name: QEMU from Homebrew (macOS)
+        if: runner.os == 'macOS'
+        run: brew install qemu
+
+      - name: Launcher is executable
+        run: test -x setup-wrapper-lite-qemu.sh
+
+      - name: Install the pinned package
+        run: ./setup-wrapper-lite-qemu.sh --action install
+
+      - name: Boot the guest without a login
+        run: ./setup-wrapper-lite-qemu.sh --action start
+
+      - name: Wrapper HTTP API answers
+        run: curl -fsS http://127.0.0.1:12340/status
+
+      - name: Status reports the missing login
+        run: |
+          set +e
+          output="$(./setup-wrapper-lite-qemu.sh --action status 2>&1)"
+          code=$?
+          echo "$output"
+          test "$code" -eq 1 && echo "$output" | grep -q "not authenticated"
+
+      - name: Stop shuts the guest down
+        run: |
+          ./setup-wrapper-lite-qemu.sh --action stop
+          sleep 2
+          ! pgrep -f qemu-system
+
+      - name: Runtime logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qemu-logs-${{ matrix.name }}
+          path: backend/wrapper-runtime/wrapper-lite-qemu/*.log
+          retention-days: 3
+          if-no-files-found: warn
+
+  windows:
+    name: windows-x86_64
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download, verify, boot and stop
+        shell: powershell
+        run: |
+          powershell.exe -NoLogo -NoProfile -File .github/ci/launcher-windows.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Runtime logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qemu-logs-windows-x86_64
+          path: backend/wrapper-runtime/wrapper-lite-qemu/*.log
+          retention-days: 3
+          if-no-files-found: warn

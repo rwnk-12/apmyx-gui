@@ -1,9 +1,7 @@
-import os
 from PyQt6.QtWidgets import QWidget, QFrame, QHBoxLayout, QPushButton, QSizePolicy, QComboBox, QButtonGroup
-from PyQt6.QtCore import pyqtSignal, QRect, QPropertyAnimation, QEasingCurve, QTimer, Qt, pyqtProperty, QPointF, QRectF, QSize, QEvent
-from PyQt6.QtGui import QColor, QPainter, QPainterPath, QFont, QLinearGradient, QPen, QFontMetrics, QTransform, QPalette
+from PyQt6.QtCore import pyqtSignal, QRect, QPropertyAnimation, QEasingCurve, QTimer, Qt, QPointF, QRectF, QEvent
+from PyQt6.QtGui import QColor, QPainter, QPainterPath, QFont, QPen, QFontMetrics, QPalette
 
-from ..search_cards import resource_path, render_svg_tinted
 
 class _Thumb(QWidget):
     def __init__(self, color: QColor, parent=None):
@@ -328,7 +326,7 @@ class BannerCloseButton(QPushButton):
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         p.setPen(pen)
         
-        m = 8 # margin
+        m = 8
         p.drawLine(m, m, self.width() - m, self.height() - m)
         p.drawLine(self.width() - m, m, m, self.height() - m)
 

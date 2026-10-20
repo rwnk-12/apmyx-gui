@@ -1,20 +1,19 @@
 import copy
 import logging
 import sys
-import subprocess
 import yaml
 import json
-import time
 import re
 from PyQt6 import sip
-from PyQt6.QtWidgets import QDialog, QLayout, QApplication, QFileDialog
+from PyQt6.QtWidgets import QLayout, QApplication, QFileDialog
 from PyQt6.QtCore import Qt, pyqtSlot, QTimer
 import os
-from ..dialogs import RestartDialog, WrapperErrorDialog
+from ..dialogs import WrapperErrorDialog
 from ...artist import ArtistDiscographyPage
-from ...track_dialogs import TrackSelectionDialog, TrackListingDialog
+from ...track_dialogs import TrackSelectionDialog
 from ...info_dialog import InfoDialog
 from ...video_preview_dialog import VideoPreviewDialog
+from core.config import config_path
 
 class SignalHandlersFeatures:
 
@@ -28,7 +27,6 @@ class SignalHandlersFeatures:
         self.controller.media_fetch_failed.connect(self.on_media_fetch_failed)
         self.controller.media_fetch_progress.connect(self.on_media_fetch_progress)
         self.controller.tracklist_loaded_for_selection.connect(self.open_track_selection_dialog)
-        self.controller.tracklist_loaded_for_viewing.connect(self.open_track_listing_dialog)
         self.controller.album_details_for_info_loaded.connect(self.open_album_info_dialog, Qt.ConnectionType.UniqueConnection)
         self.controller.song_details_for_info_loaded.connect(self.open_album_info_dialog, Qt.ConnectionType.UniqueConnection)
         self.controller.track_qualities_loaded.connect(self.on_track_qualities_loaded)
@@ -43,7 +41,6 @@ class SignalHandlersFeatures:
         self.download_worker.job_progress.connect(self.update_job_progress)
         self.download_worker.track_skipped.connect(self.queue_panel.handle_track_skipped)
         self.download_worker.job_finished.connect(self.queue_panel.finalize_job)
-        self.download_worker.queue_status_update.connect(self.update_queue_button)
         self.download_worker.job_cancelled.connect(self.queue_panel.cancel_job)
         self.download_worker.job_error_line.connect(self.queue_panel.handle_job_error_line)
         self.download_worker.job_stream_label.connect(self.queue_panel.update_stream_label)
@@ -54,6 +51,7 @@ class SignalHandlersFeatures:
         self.search_input.returnPressed.connect(self.handle_input)
         self.settings_button.clicked.connect(self.toggle_sidebar)
         self.settings_page.settings_applied.connect(self.on_settings_applied, Qt.ConnectionType.UniqueConnection)
+        self.settings_page.wrapper_state_changed.connect(self._refresh_wrapper_status, Qt.ConnectionType.UniqueConnection)
         self.download_selected_button.clicked.connect(self._on_download_selected_clicked)
         self.selection_dropdown.remove_single_item_requested.connect(self._remove_single_selection)
         self.selection_dropdown.clear_all_requested.connect(self._clear_selection)
@@ -151,7 +149,7 @@ class SignalHandlersFeatures:
 
         try:
             job_id = paused_jobs[0]['job_id'] if paused_jobs else -1
-            self._maybe_show_decryptor_popup(job_id, "Connection refused on 127.0.0.1:10020")
+            self._maybe_show_decryptor_popup(job_id, "wrapper_unavailable: Cannot connect to the selected wrapper.")
         except Exception as e:
             logging.error(f"Error showing wrapper popup from pause trigger: {e}")
 
@@ -175,7 +173,8 @@ class SignalHandlersFeatures:
                 job_dict['job_id'],
                 job_dict['media_data'],
                 job_dict['quality'],
-                job_dict['original_url']
+                job_dict['original_url'],
+                backend_settings=job_dict.get('backend_settings', {'wrapper': 'legacy'})
             )
         
 
@@ -211,42 +210,15 @@ class SignalHandlersFeatures:
         self.aac_quality_selector.setVisible(is_aac)
         
         try:
-            with open('config.yaml', 'r') as f:
+            with open(config_path(), 'r') as f:
                 config = yaml.safe_load(f) or {}
         except FileNotFoundError:
             config = {}
 
-        if hasattr(self, 'quality_info_badge'):
-            if is_aac:
-                if config.get('media-user-token'):
-                    new_text = "Token Filled"
-                    tooltip = "Apple Music web token is configured."
-                else:
-                    new_text = "Token Required. Click here to set it up if not already configured."
-                    tooltip = "Apple Music web token required for AAC downloads"
-            else:
-                new_text = "Make sure wrapper is running."
-                tooltip = "Wrapper (decryptor) required for ALAC and Dolby Atmos downloads"
-            
- 
-            self.quality_info_badge.setText(new_text)
-            self.quality_info_badge.setToolTip(tooltip)
-
-   
-            fm = self.quality_info_badge.fontMetrics()
-            text_w = fm.horizontalAdvance(self.quality_info_badge.text())
-            icon_w = 14      
-            spacing = 6     
-            hpad = 10 * 2    
-            self.quality_info_badge.setMinimumWidth(text_w + icon_w + spacing + hpad)
-            
-           
-            self.quality_info_badge.updateGeometry()
-        
         if config.get('preferred-quality') != text:
             config['preferred-quality'] = text
             try:
-                with open('config.yaml', 'w') as f:
+                with open(config_path(), 'w') as f:
                     yaml.dump(config, f, sort_keys=False, allow_unicode=True)
             except Exception as e:
                 logging.error(f"Failed to save preferred quality to config.yaml: {e}")
@@ -256,7 +228,7 @@ class SignalHandlersFeatures:
     def _on_aac_type_changed(self, aac_type: str):
         
         try:
-            with open('config.yaml', 'r') as f:
+            with open(config_path(), 'r') as f:
                 config = yaml.safe_load(f) or {}
         except FileNotFoundError:
             config = {}
@@ -264,7 +236,7 @@ class SignalHandlersFeatures:
         if config.get('aac-type') != aac_type:
             config['aac-type'] = aac_type
             try:
-                with open('config.yaml', 'w') as f:
+                with open(config_path(), 'w') as f:
                     yaml.dump(config, f, sort_keys=False, allow_unicode=True)
                 self.statusBar().showMessage(f"AAC type set to {aac_type}", 2000)
             except Exception as e:
@@ -279,6 +251,7 @@ class SignalHandlersFeatures:
         storefront_has_changed = new_sf and new_sf != current_sf and current_sf
 
         self.controller.apply_runtime_settings(config)
+        self._refresh_wrapper_status()
 
         if storefront_has_changed:
             logging.info(f"Storefront changed from '{current_sf}' to '{new_sf}'. Restart is required.")
@@ -391,19 +364,6 @@ class SignalHandlersFeatures:
             self.job_counter += 1
             job_id = self.job_counter
             self.controller.fetch_media_for_download(url, job_id)
-
-    @pyqtSlot(dict)
-    def on_discography_tracklist_requested(self, data: dict):
-        self._clear_active_card()
-        url = data.get('appleMusicUrl')
-        if url:
-            self.controller.fetch_media_for_track_selection(url)
-
-    @pyqtSlot(dict)
-    def open_track_listing_dialog(self, media_data):
-        dialog = TrackListingDialog(media_data, self)
-        self._clear_active_card()
-        dialog.exec()
 
     @pyqtSlot(object)
     def on_tracklist_requested(self, card_obj):
@@ -544,7 +504,7 @@ class SignalHandlersFeatures:
         
         config = {}
         try:
-            with open("config.yaml", "r") as f:
+            with open(config_path(), "r") as f:
                 config = yaml.safe_load(f) or {}
         except FileNotFoundError:
             pass
@@ -571,7 +531,7 @@ class SignalHandlersFeatures:
                     f.write(data_or_error)
                 
                 config["last_lyrics_dir"] = os.path.dirname(file_path)
-                with open("config.yaml", "w") as f:
+                with open(config_path(), "w") as f:
                     yaml.dump(config, f, sort_keys=False, allow_unicode=True)
                 
                 self.statusBar().showMessage(f"Lyrics saved to {os.path.basename(file_path)}", 3000)
@@ -589,7 +549,7 @@ class SignalHandlersFeatures:
         
         config = {}
         try:
-            with open("config.yaml", "r") as f:
+            with open(config_path(), "r") as f:
                 config = yaml.safe_load(f) or {}
         except FileNotFoundError:
             pass
@@ -617,7 +577,7 @@ class SignalHandlersFeatures:
                     f.write(artwork_bytes)
                 
                 config["last_artwork_dir"] = os.path.dirname(file_path)
-                with open("config.yaml", "w") as f:
+                with open(config_path(), "w") as f:
                     yaml.dump(config, f, sort_keys=False, allow_unicode=True)
                 
                 self.statusBar().showMessage(f"Artwork saved to {os.path.basename(file_path)}", 3000)
@@ -782,7 +742,8 @@ class SignalHandlersFeatures:
         if selected_track_obj:
             job_media_data = {
                 'albumData': copy.deepcopy(media_data.get('albumData', {})),
-                'tracks': [copy.deepcopy(selected_track_obj)]
+                'tracks': [copy.deepcopy(selected_track_obj)],
+                '_backend_settings': copy.deepcopy(media_data.get('_backend_settings', {'wrapper': 'legacy'}))
             }
          
             job_media_data['_is_single_song'] = True
@@ -822,31 +783,34 @@ class SignalHandlersFeatures:
         if not msg:
             return False
         m = msg.lower()
-        return ("failed to run v2" in m) or ("127.0.0.1:10020" in m) or ("actively refused" in m)
+        return "wrapper_unavailable" in m
 
     @pyqtSlot(int, str)
     def _maybe_show_decryptor_popup(self, job_id: int, line: str):
         import time as _time
+        from collections import deque
         lower = (line or "").lower()
 
-        is_port_refused = ("127.0.0.1:10020" in lower) and (
-            "refused" in lower or "connection refused" in lower or "actively refused" in lower
-        )
+        recent = getattr(self, "_wrapper_error_log", None)
+        if recent is None:
+            recent = self._wrapper_error_log = {}
+        received = recent.setdefault(job_id, deque(maxlen=20))
+        if line and line.strip() and not line.startswith("wrapper_unavailable: Cannot connect to the selected wrapper."):
+            received.append(line.strip())
+
+        is_port_refused = "wrapper_unavailable" in lower
         is_wrapper_common = ("invalid ckc" in lower) or ("playback error" in lower)
         if not (is_port_refused or is_wrapper_common):
             return
 
-    
         now = _time.monotonic()
         if now - getattr(self, "_last_wrapper_popup_ts", 0) < 2:
             return
         self._last_wrapper_popup_ts = now
 
-        excerpt = (line or "").strip()
-        if len(excerpt) > 160:
-            excerpt = excerpt[:157] + "..."
+        excerpt = "\n".join(received) or (line or "").strip()
+        recent.pop(job_id, None)
 
-  
         try:
             if self._wrapper_popup and self._wrapper_popup.isVisible():
                 self._wrapper_popup.raise_()

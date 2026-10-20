@@ -1,0 +1,375 @@
+"""HTTP client for the wrapper/lite service.
+
+Talks to a wrapper/lite instance over its JSON HTTP API:
+
+    GET  /m3u8 /key /lyrics /webplayback /status
+    POST /license
+
+Every response uses the envelope ``{"code":0,"msg":"SUCCESS","data":{...}}``;
+a non-zero ``code`` raises :class:`WrapperError`. Transport
+failures are retried with exponential backoff (``[download] retryTime /
+maxWaitTime``); envelope errors are retried unless the message is a terminal
+marker (``'no such account'``).
+"""
+
+import asyncio
+import json
+import ssl
+from typing import Type
+
+import httpx
+from async_lru import alru_cache
+from creart import AbstractCreator, CreateTargetInfo, exists_module
+from applemusicdecrypt.services import it
+from tenacity import (
+    before_sleep_log,
+    retry,
+    retry_base,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_random_exponential,
+)
+
+from applemusicdecrypt.config import Config
+from applemusicdecrypt.logger import GlobalLogger
+
+if __name__ == "__main__":
+    # Standalone run (`python -m src.wrapper`) needs the creart creators
+    # registered before the @retry decorators below evaluate it(Config) /
+    # it(GlobalLogger) at class-definition time. When imported by the app,
+    # main.py registers these creators beforehand, so this block is skipped.
+    from creart import add_creator
+
+    from applemusicdecrypt.config import ConfigCreator
+    from applemusicdecrypt.logger import LoggerCreator
+
+    add_creator(LoggerCreator)
+    add_creator(ConfigCreator)
+
+
+class WrapperError(Exception):
+    """Raised when the wrapper returns code != 0 or transport fails."""
+
+    def __init__(self, msg: str):
+        super().__init__(msg)
+        self.msg = msg
+
+
+class _retry_unless_terminal(retry_base):
+    """Retry a wrapper error unless its message *contains* a terminal marker.
+
+    tenacity's built-in ``retry_if_not_exception_message`` compares by exact
+    equality, but the terminal condition here is substring containment
+    (``'no such account'`` inside e.g. ``'no such account: foo'``), so a small
+    custom predicate is used instead.
+    """
+
+    def __init__(self, marker: str):
+        self.marker = marker
+
+    def __call__(self, retry_state) -> bool:
+        exception = retry_state.outcome.exception()
+        if exception is None:
+            return True
+        return self.marker not in str(exception)
+
+
+def _retry_policy():
+    """Tenacity retry predicate for wrapper requests.
+
+    - Transport failures (any httpx error / TLS failure) are always retried.
+    - Envelope errors (``code != 0`` -> ``WrapperError``) are
+      retried unless the message contains the terminal marker
+      ``'no such account'``. ``'no available instance'`` is transient and is
+      retried (it does not contain the terminal marker).
+    """
+    return (
+        retry_if_exception_type((httpx.HTTPError, ssl.SSLError))
+        | (
+            retry_if_exception_type(WrapperError)
+            & _retry_unless_terminal("no such account")
+        )
+    )
+
+
+class WrapperClient:
+    """Async HTTP client for a wrapper/lite instance."""
+
+    _client: httpx.AsyncClient
+    _semaphore: asyncio.Semaphore
+    _base_url: str
+
+    def __init__(self, url: str, secure: bool, m3u8_concurrency: int | None = None):
+        self._base_url = f"{'https' if secure else 'http'}://{url}"
+        wrapper_timeout = httpx.Timeout(10.0, connect=10.0, read=30.0, write=10.0, pool=60.0)
+        wrapper_limits = httpx.Limits(max_connections=64, max_keepalive_connections=16, keepalive_expiry=60.0)
+        self._client = httpx.AsyncClient(
+            base_url=self._base_url,
+            timeout=wrapper_timeout,
+            limits=wrapper_limits,
+            http2=False,
+        )
+        self._semaphore = asyncio.Semaphore(64)
+        # wrapper/lite's /m3u8 cannot serve many concurrent requests; keep
+        # the batch prefetch from overwhelming it. A local lite instance
+        # runs a single Android VM, so 2 concurrent requests avoids queueing.
+        if m3u8_concurrency is None:
+            try:
+                cfg = it(Config)
+                m3u8_concurrency = 2 if getattr(cfg.localInstance, "wrapperType", "manager") == "lite" else 4
+            except Exception:
+                m3u8_concurrency = 2
+        self._m3u8_semaphore = asyncio.Semaphore(m3u8_concurrency)
+
+    async def __aenter__(self) -> "WrapperClient":
+        return self
+
+    async def __aexit__(self, *exc_info) -> None:
+        await self.close()
+
+    @property
+    def base_url(self) -> str:
+        """``scheme://host:port`` of the wrapper instance."""
+        return self._base_url
+
+    async def init(self) -> "WrapperClient":
+        """Warm-ping the wrapper once and return ``self``.
+
+        Fails with a clear :class:`WrapperError` that includes the
+        base URL when the wrapper cannot be reached (after retries are
+        exhausted).
+        """
+        try:
+            await self.status()
+        except Exception as e:
+            raise WrapperError(
+                f"unable to connect to wrapper at {self._base_url}: {e}"
+            ) from e
+        return self
+
+    @alru_cache
+    async def status(self) -> dict:
+        """Return the ``data`` object of GET /status (e.g. ``{"regions": [...]}``).
+
+        Cached with :func:`async_lru.alru_cache`; call
+        ``status.cache_invalidate()`` to drop the cached value.
+        """
+        return await self._request("GET", "/status")
+
+    async def m3u8(self, adam_id: str, timeout: float = 10.0) -> str:
+        """Fetch the master playlist URL for ``adam_id``.
+
+        Uses a fast timeout (default 10s) and at most 1 retry, without holding
+        the semaphore across backoff sleep, so callers can fall back quickly to
+        web API enhancedHls if the wrapper is overwhelmed or unavailable.
+        """
+        async def _attempt() -> str:
+            async with self._m3u8_semaphore:
+                req_timeout = httpx.Timeout(timeout, connect=min(5.0, timeout), read=timeout)
+                data = await self._request_once(
+                    "GET", "/m3u8", params={"adamId": adam_id}, timeout=req_timeout
+                )
+                return data["m3u8"]
+
+        for attempt in range(2):
+            try:
+                return await _attempt()
+            except WrapperError as e:
+                if attempt == 0 and "no such account" not in str(e):
+                    await asyncio.sleep(0.5)
+                    continue
+                raise
+
+    async def key_template(self, adam_id: str, uri: str) -> dict:
+        """Return the full ``data`` dict of GET /key (ctx/state/registers).
+
+        The returned dict is exactly what ``temari`` expects
+        (``ctx``, ``state``, ``rcx/rax/rdx/r9/rbp``).
+        """
+        return await self._request("GET", "/key", params={"adamId": adam_id, "uri": uri})
+
+    async def key_template_json(self, adam_id: str, uri: str) -> str:
+        """Return the JSON text of the GET /key ``data`` object.
+
+        Convenience for ``temari.Temari.from_json()``.
+        """
+        data = await self.key_template(adam_id, uri)
+        return json.dumps(data)
+
+    async def lyrics(self, adam_id: str, language: str, region: str, syllable: bool = False) -> str:
+        # wrapper/lite's /lyrics consumes adamId + language + optional syllable
+        # (1 = word-timed /syllable-lyrics, 0 = standard /lyrics); `region` is
+        # kept in the signature for interface compatibility and not sent.
+        data = await self._request(
+            "GET", "/lyrics",
+            params={"adamId": adam_id, "language": language, "syllable": "1" if syllable else "0"},
+        )
+        return data["lyrics"]
+
+    async def webplayback(self, adam_id: str) -> str:
+        data = await self._request("GET", "/webplayback", params={"adamId": adam_id})
+        return data["m3u8"]
+
+    # -- wrapper-manager management endpoints ------------------------------
+    # These exist on wrapper-manager (HTTP /login /logout).  On a plain
+    # wrapper-lite backend the server returns HTTP 404, which surfaces as a
+    # WrapperError telling the caller that login/logout are unsupported.
+
+    async def login(self, username: str, password: str, code: str | None = None) -> dict:
+        """Start/complete a wrapper-manager login.
+
+        Returns the manager's ``data`` dict (e.g. ``{"loginId": "..."}``).
+        Raises ``WrapperError`` when the backend does not support /login or
+        when the manager rejects the request (code != 0, including
+        code=2 2FA-required which is surfaced as WrapperError with msg).
+        """
+        body = {"username": username, "password": password}
+        if code:
+            body["code"] = code
+        return await self._request("POST", "/login", json=body)
+
+    async def logout(self, username: str) -> dict:
+        """Log an account out of wrapper-manager.
+
+        Raises ``WrapperError`` when the backend does not support /logout or
+        when the manager rejects the request.
+        """
+        return await self._request("POST", "/logout", json={"username": username})
+
+    async def is_manager(self) -> bool:
+        """Detect whether the backend is wrapper-manager.
+
+        wrapper-manager's aggregated /status has ``clientCount`` and ``ready``
+        fields; wrapper-lite's /status only has ``regions``.  This works for
+        both local and remote instances without probing /login directly.
+        """
+        try:
+            data = await self.status()
+        except (WrapperError, httpx.HTTPError, ssl.SSLError):
+            return False
+        if not isinstance(data, dict):
+            return False
+        return ("clientCount" in data) or ("ready" in data)
+
+    async def supports_management(self) -> bool:
+        """Check whether the remote backend exposes /login and /logout.
+
+        Uses the /status shape for a fast answer, then falls back to an
+        empty POST /login probe.  The probe intentionally uses the raw
+        client (no retry policy) so wrapper-lite's HTTP 404 is quick.
+        """
+        if await self.is_manager():
+            return True
+        try:
+            response = await self._client.post("/login", json={}, timeout=5.0)
+        except (httpx.HTTPError, ssl.SSLError):
+            return False
+        if response.status_code == 404:
+            return False
+        # 2xx means the endpoint exists (it may still reject the empty body
+        # with a JSON error, but that is a manager-style validation).
+        return response.status_code < 500
+
+    async def license(self, adam_id: str, challenge: str, uri: str, drm_type: str = "wv") -> str:
+        """``drm_type`` is ``wv`` (Widevine, wrapper default) or ``pr`` (PlayReady)."""
+        body = {"adamId": adam_id, "challenge": challenge, "uri": uri}
+        if drm_type != "wv":
+            body["drm-type"] = drm_type
+        data = await self._request("POST", "/license", json=body)
+        return data["license"]
+
+    async def close(self) -> None:
+        await self._client.aclose()
+
+    async def _request_once(self, method: str, path: str, **kwargs) -> dict:
+        """Send one request, acquire the semaphore and validate the envelope.
+
+        Unlike ``_request``, this method is not wrapped with tenacity retries,
+        allowing callers (like ``m3u8()``) to apply tailored retry/timeout logic.
+        """
+        async with self._semaphore:
+            try:
+                response = await self._client.request(method, path, **kwargs)
+            except (httpx.HTTPError, ssl.SSLError) as e:
+                raise WrapperError(
+                    f"{method} {path} transport error at {self._base_url}: {e!r}"
+                ) from e
+            return self._decode_response(method, path, response)
+
+    @retry(
+        retry=_retry_policy(),
+        wait=wait_random_exponential(multiplier=1, max=it(Config).download.maxWaitTime),
+        stop=stop_after_attempt(it(Config).download.retryTime),
+        reraise=True,
+        before_sleep=before_sleep_log(it(GlobalLogger).logger, "WARNING"),
+    )
+    async def _request(self, method: str, path: str, **kwargs) -> dict:
+        """Send one request with global tenacity retry policy."""
+        return await self._request_once(method, path, **kwargs)
+
+    @staticmethod
+    def _decode_response(method: str, path: str, response: httpx.Response) -> dict:
+        # Some wrapper/lite builds do not register every endpoint (e.g.
+        # /webplayback); surface that as a WrapperError instead of
+        # failing silently.
+        if response.status_code == 404:
+            raise WrapperError(
+                f"wrapper endpoint {method} {path} is not available at "
+                f"{response.url} (HTTP 404)"
+            )
+
+        try:
+            payload = response.json()
+        except ValueError:
+            raise WrapperError(
+                f"wrapper returned a non-JSON body for {method} {path} "
+                f"(HTTP {response.status_code})"
+            )
+
+        if not isinstance(payload, dict) or "code" not in payload:
+            # NB: do not embed the raw payload here - loguru's message
+            # formatting (used by before_sleep) interprets literal braces.
+            raise WrapperError(
+                f"wrapper returned an unexpected envelope for {method} {path} "
+                f"(HTTP {response.status_code}, missing 'code' field)"
+            )
+
+        code = payload.get("code")
+        msg = payload.get("msg")
+        if code != 0:
+            raise WrapperError(
+                str(msg) if msg else f"wrapper error code {code} on {method} {path}"
+            )
+
+        data = payload.get("data")
+        return data if isinstance(data, dict) else {}
+
+
+class WrapperCreator(AbstractCreator):
+    """creart creator for :class:`WrapperClient` (mirrors ``APICreator``)."""
+
+    targets = (
+        CreateTargetInfo("applemusicdecrypt.wrapper", "WrapperClient"),
+    )
+
+    @staticmethod
+    def available() -> bool:
+        return exists_module("applemusicdecrypt.wrapper")
+
+    @staticmethod
+    def create(create_type: Type[WrapperClient]) -> WrapperClient:
+        return create_type(it(Config).instance.url, it(Config).instance.secure)
+
+
+if __name__ == "__main__":
+    # Minimal self-check: construct the client and print base_url. No network.
+    async def _self_check() -> None:
+        client = WrapperClient("127.0.0.1:12340", False)
+        print(f"WrapperClient constructed; base_url={client.base_url}")
+        print(
+            "status.cache_invalidate available:",
+            hasattr(client.status, "cache_invalidate"),
+        )
+        await client.close()
+
+    asyncio.run(_self_check())

@@ -1,10 +1,13 @@
+import time
+
 from PyQt6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QLabel, QProgressBar,
                              QPushButton, QMessageBox, QDialog, QTableWidget,
                              QTableWidgetItem, QHeaderView, QDialogButtonBox, QPlainTextEdit)
-from PyQt6.QtCore import (Qt, pyqtSlot, QThreadPool, pyqtSignal, QTimer, QPropertyAnimation,
-                          QEasingCurve, pyqtProperty, QBuffer, QIODevice, QRectF)
-from PyQt6.QtGui import (QPixmap, QIcon, QFontMetrics, QImageReader, QColorSpace, QPainter,
-                         QColor)
+from PyQt6.QtCore import (
+    Qt, pyqtSlot, QThreadPool, pyqtSignal, QPropertyAnimation, QEasingCurve, pyqtProperty, QBuffer,
+    QIODevice, QRectF,
+)
+from PyQt6.QtGui import QPixmap, QFontMetrics, QImageReader, QColorSpace, QPainter, QColor
 from PyQt6.QtSvg import QSvgRenderer
 from .search_widgets import ImageFetcher
 
@@ -89,8 +92,16 @@ QProgressBar::chunk {
 }
 """
 
+def format_elapsed(seconds):
+    minutes, seconds = divmod(int(seconds), 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f"{hours}h {minutes}m {seconds}s"
+    return f"{minutes}m {seconds}s" if minutes else f"{seconds}s"
+
+
 class SkippedTracksDialog(QDialog):
-    def __init__(self, skipped_tracks, downloaded_count, quality, parent=None):
+    def __init__(self, skipped_tracks, downloaded_count, quality, parent=None, reasons=None):
         super().__init__(parent)
         self.setWindowTitle("Download Job Summary")
         self.setMinimumWidth(450)
@@ -107,7 +118,8 @@ class SkippedTracksDialog(QDialog):
         
         for i, track_name in enumerate(skipped_tracks):
             table.setItem(i, 0, QTableWidgetItem(track_name))
-            status_item = QTableWidgetItem(f"Skipped (Not in {quality})")
+            reason = (reasons or {}).get(track_name)
+            status_item = QTableWidgetItem(f"Skipped ({reason})" if reason else f"Skipped (Not in {quality})")
             table.setItem(i, 1, status_item)
         
         table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
@@ -132,12 +144,15 @@ class DownloadJobWidget(QWidget):
         self.quality_label = quality_label
         self.worker = None
         self.skipped_tracks = []
+        self.skip_reasons = {}
         self.item_data = item_data
         self.is_finished = False
         self._log = []
         self._has_error = False
         self._first_progress_seen = False
         self._state = "queued" 
+        self._elapsed = 0.0
+        self._run_started = None
         
       
         self.job_progress_bar = QProgressBar()
@@ -220,7 +235,7 @@ class DownloadJobWidget(QWidget):
         self.status_label.setWordWrap(True)
         self.status_label.setStyleSheet("font-size: 8pt;")
         
-        self.stream_label = QLabel("Stream: —")
+        self.stream_label = QLabel("Stream: -")
         self.stream_label.setStyleSheet("color: #bbb; font-size: 8pt;")
         
         info_layout.addLayout(top_row_layout)
@@ -234,17 +249,26 @@ class DownloadJobWidget(QWidget):
 
     def set_paused_ui(self):
         self._state = "paused"
+        self._stop_clock()
         self.status_label.setText("Paused · waiting for wrapper")
         self.status_label.setStyleSheet("font-size: 8pt; color: #ffcc33;")
         self.stream_label.setText("")
         self.job_progress_bar.setStyleSheet(PROGRESS_BAR_STYLESHEET.replace("#ff546a", "#ffcc33")) 
+        self._progress_animation.stop()
+        self.job_progress_bar.setRange(0, 1000)
         self.job_progress_bar.setValue(1000) 
         self.job_progress_bar.setVisible(True)
+
+    def _stop_clock(self):
+        if self._run_started is not None:
+            self._elapsed += time.monotonic() - self._run_started
+            self._run_started = None
 
     def set_in_progress_ui(self, label="Downloading..."):
         if self._state == "running":
             return 
         self._state = "running"
+        self._run_started = time.monotonic()
         self.status_label.setText(label)
         self.status_label.setStyleSheet("font-size: 8pt;") 
         self.job_progress_bar.setStyleSheet(PROGRESS_BAR_STYLESHEET) 
@@ -258,12 +282,6 @@ class DownloadJobWidget(QWidget):
     @progressValue.setter
     def progressValue(self, value):
         self.job_progress_bar.setValue(value)
-
-    def set_fetching(self):
-        self.status_label.setText("Fetching playlist details...")
-        self.job_progress_bar.setRange(0, 1000)
-        self.job_progress_bar.setValue(0)
-        self.cancel_button.setVisible(True)
 
     def set_info(self, item_data):
         tracks = item_data.get('tracks', [])
@@ -352,8 +370,15 @@ class DownloadJobWidget(QWidget):
 
         self.status_label.setText(status_text)
 
+        if track_percent < 0:
+            self._progress_animation.stop()
+            self.job_progress_bar.setRange(0, 0)
+            self.cancel_button.setVisible(True)
+            return
+
         if self.job_progress_bar.maximum() == 0:
             self.job_progress_bar.setRange(0, 1000)
+            self.job_progress_bar.setValue(int(overall_percent * 10))
 
         new_target = int(overall_percent * 10)
         current = self.job_progress_bar.value()
@@ -375,12 +400,7 @@ class DownloadJobWidget(QWidget):
         if delta <= 6:  
             self.job_progress_bar.setValue(new_target)
         else:
-            duration = max(80, min(200, int(delta * 2)))
-            self._progress_animation.setStartValue(current)
-            self._progress_animation.setEndValue(new_target)
-            self._progress_animation.setDuration(duration)
-            self._progress_animation.setEasingCurve(QEasingCurve.Type.Linear)
-            self._progress_animation.start()
+            self.job_progress_bar.setValue(new_target)
 
         if not self.cancel_button.isVisible():
             self.cancel_button.setVisible(True)
@@ -392,13 +412,15 @@ class DownloadJobWidget(QWidget):
                 fixed_text = text.encode('latin-1').decode('utf-8')
             except (UnicodeDecodeError, UnicodeEncodeError):
                 fixed_text = (text
-                             .replace('â€"', '—')     
+                             .replace('â€"', '-')
                              .replace('â€œ', '"')     
                              .replace('â€', '"'))    
         
         self.stream_label.setText(f"Stream: {fixed_text}")
 
-    def add_skipped_track(self, track_name):
+    def add_skipped_track(self, track_name, reason=""):
+        if reason:
+            self.skip_reasons[track_name] = reason
         if track_name not in self.skipped_tracks:
             self.skipped_tracks.append(track_name)
             self.info_button.setVisible(True)
@@ -412,8 +434,16 @@ class DownloadJobWidget(QWidget):
     def set_finished(self, message, success, skipped_tracks):
         self.is_finished = True
         self._state = "finished"
+        self._stop_clock()
         self.cancel_button.setVisible(False)
-        self.status_label.setText(message)
+        saved = success and message.startswith("Saved to ")
+        shown = message
+        if saved:
+            self.status_label.setToolTip(message[len("Saved to "):])
+            shown = message.replace("\\", "\\​").replace("/", "/​")
+        if success and self._elapsed >= 1:
+            shown = f"{shown if saved else shown.rstrip('.')} • {format_elapsed(self._elapsed)}"
+        self.status_label.setText(shown)
         self.skipped_tracks = skipped_tracks
         
         if self._progress_animation.state() == QPropertyAnimation.State.Running:
@@ -431,7 +461,7 @@ class DownloadJobWidget(QWidget):
         final_anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
         
         def set_final_stylesheet():
-            if "cancel" in message.lower():
+            if not success and "cancel" in message.lower():
                 self.job_progress_bar.setStyleSheet(PROGRESS_BAR_STYLESHEET.replace("#ff546a", "#d32f2f"))  
             elif not success:
                 if message:
@@ -472,24 +502,8 @@ class DownloadJobWidget(QWidget):
         if self.skipped_tracks:
             quality = self.quality_label
             downloaded_count = len(self.item_data.get('tracks', [])) - len(self.skipped_tracks)
-            dialog = SkippedTracksDialog(self.skipped_tracks, downloaded_count, quality, self)
+            dialog = SkippedTracksDialog(self.skipped_tracks, downloaded_count, quality, self, self.skip_reasons)
             dialog.exec()
-
-    def handle_progress_message(self, progress_data):
-        msg_type = progress_data.get("type")
-
-        if msg_type == "track_progress":
-            track_num = progress_data.get("track_num", 1)
-            total_tracks = progress_data.get("total_tracks", 1)
-            percent = progress_data.get("percent", 0)
-
-            if percent >= 90:
-                status_text = f"Finalizing video ({track_num}/{total_tracks})"
-                self.set_stream_label("Combining video & audio streams")
-            else:
-                status_text = f"Downloading ({track_num}/{total_tracks})"
-
-            self.update_progress(status_text, percent, percent)
 
     @pyqtSlot()
     def on_cancel_clicked(self):

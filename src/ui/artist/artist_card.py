@@ -1,15 +1,82 @@
-import os
-import sys
 from PyQt6 import sip
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QApplication
 )
-from PyQt6.QtCore import pyqtSignal, pyqtSlot, QThreadPool, QSize, Qt, QPointF, QEvent, QRectF, QRect
-from PyQt6.QtGui import QPixmap, QMouseEvent, QBitmap, QPainter, QColor, QPen, QFontMetrics, QIcon, QFont
+import urllib.request
+
+from PyQt6.QtCore import pyqtSignal, pyqtSlot, QObject, QRunnable, QThreadPool, Qt, QEvent, QRect, QRectF
+from PyQt6.QtGui import QPixmap, QImage, QMouseEvent, QPainter, QPainterPath, QColor, QPen, QFontMetrics, QFont
 
 
-from ..search_widgets import LoadingSpinner, ImageFetcher, MarqueeLabel, round_pixmap
+from ..search_widgets import LoadingSpinner, MarqueeLabel
 from ..search_cards import DownloadIconButton, TracklistButton, InfoIconButton, PlayButton
+
+ARTWORK_SIZE = 180
+ARTWORK_POOL = QThreadPool()
+ARTWORK_POOL.setMaxThreadCount(6)
+ARTWORK_HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+
+
+def result_data_for(album_data: dict) -> dict:
+    attrs = album_data.get('attributes', {})
+    return {
+        'id': album_data.get('id'),
+        'type': album_data.get('type'),
+        'name': attrs.get('name'),
+        'artist': attrs.get('artistName'),
+        'artworkUrl': attrs.get('artwork', {}).get('url'),
+        'appleMusicUrl': attrs.get('url'),
+        'releaseDate': attrs.get('releaseDate'),
+        'trackCount': attrs.get('trackCount'),
+    }
+
+
+class ArtworkSignals(QObject):
+    loaded = pyqtSignal(QImage)
+    failed = pyqtSignal()
+
+
+class ArtworkLoader(QRunnable):
+    def __init__(self, url: str, size: int, radius: int):
+        super().__init__()
+        self.url, self.size, self.radius = url, size, radius
+        self.signals = ArtworkSignals()
+        self.cancelled = False
+
+    def cancel(self):
+        self.cancelled = True
+
+    def run(self):
+        if self.cancelled:
+            return
+        try:
+            request = urllib.request.Request(self.url, headers=ARTWORK_HEADERS)
+            with urllib.request.urlopen(request, timeout=8) as response:
+                data = response.read()
+            if self.cancelled:
+                return
+            image = QImage.fromData(data)
+            if image.isNull():
+                raise ValueError("not an image")
+            image = image.scaled(self.size, self.size, Qt.AspectRatioMode.KeepAspectRatio,
+                                 Qt.TransformationMode.SmoothTransformation)
+            rounded = QImage(image.size(), QImage.Format.Format_ARGB32_Premultiplied)
+            rounded.fill(Qt.GlobalColor.transparent)
+            painter = QPainter(rounded)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            path = QPainterPath()
+            path.addRoundedRect(QRectF(rounded.rect()), self.radius, self.radius)
+            painter.setClipPath(path)
+            painter.drawImage(0, 0, image)
+            painter.end()
+            if not self.cancelled:
+                self.signals.loaded.emit(rounded)
+        except Exception:
+            if not self.cancelled:
+                try:
+                    self.signals.failed.emit()
+                except RuntimeError:
+                    pass
 
 class HoverMask(QLabel):
     def __init__(self, track_text, year_text, parent=None):
@@ -75,19 +142,10 @@ class ArtistAlbumCard(QWidget):
         super().__init__(parent)
         self.album_data = album_data
         attrs = self.album_data.get('attributes', {})
-        self.result_data = {
-            'id': self.album_data.get('id'),
-            'type': self.album_data.get('type'),
-            'name': attrs.get('name'),
-            'artist': attrs.get('artistName'),
-            'artworkUrl': attrs.get('artwork', {}).get('url'),
-            'appleMusicUrl': attrs.get('url'),
-            'releaseDate': attrs.get('releaseDate'),
-            'trackCount': attrs.get('trackCount'),
-        }
+        self.result_data = result_data_for(album_data)
 
-        self.thread_pool = QThreadPool.globalInstance()
         self.worker = None
+        self.artwork_requested = False
         self._is_selected = False
         
         self.setFixedSize(190, 250)
@@ -192,7 +250,6 @@ class ArtistAlbumCard(QWidget):
         layout.addStretch()
         
         self.main_container.installEventFilter(self)
-        self._fetch_artwork()
 
     def isSelected(self) -> bool:
         return self._is_selected
@@ -287,26 +344,25 @@ class ArtistAlbumCard(QWidget):
                 pass
         self.active_button = None
 
-    def _fetch_artwork(self):
-        attrs = self.album_data.get('attributes', {})
-        artwork_url = attrs.get('artwork', {}).get('url')
-        if artwork_url:
-            formatted_url = artwork_url.replace('{w}', '360').replace('{h}', '360')
-            self.worker = ImageFetcher(formatted_url).auto_cancel_on(self)
-            self.worker.signals.image_loaded.connect(self._set_artwork)
-            self.worker.signals.error.connect(self._on_load_error)
-            self.thread_pool.start(self.worker)
-        else:
+    def load_artwork(self):
+        if self.artwork_requested:
+            return
+        self.artwork_requested = True
+        artwork_url = self.album_data.get('attributes', {}).get('artwork', {}).get('url')
+        if not artwork_url:
             self.artwork_label.setText("No Image")
+            return
+        url = artwork_url.replace('{w}', '360').replace('{h}', '360')
+        self.worker = ArtworkLoader(url, ARTWORK_SIZE, 12)
+        self.worker.signals.loaded.connect(self._set_artwork)
+        self.worker.signals.failed.connect(self._on_load_error)
+        self.destroyed.connect(self.worker.cancel)
+        ARTWORK_POOL.start(self.worker)
 
-    @pyqtSlot(bytes)
-    def _set_artwork(self, image_data):
-        pixmap = QPixmap()
-        pixmap.loadFromData(image_data)
-        scaled_pixmap = pixmap.scaled(self.artwork_label.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-        final_pixmap = round_pixmap(scaled_pixmap, 12)
-        self.artwork_label.setPixmap(final_pixmap)
+    @pyqtSlot(QImage)
+    def _set_artwork(self, image):
+        self.artwork_label.setPixmap(QPixmap.fromImage(image))
 
-    @pyqtSlot(str)
-    def _on_load_error(self, error_str: str):
+    @pyqtSlot()
+    def _on_load_error(self):
         self.artwork_label.setText("Load Error")

@@ -7,3 +7,18 @@ build/
 *.spec
 *.manifest
 *.log
+backend/**/bin/
+backend/runtime/
+backend/providers/gamdl/gamdl/downloader/ammuxer/target/
+backend/**/.venv/
+backend/**/.git/
+backend/**/target/
+backend/**/cookies.txt
+backend/wrapper-runtime/
+config.yaml
+update-state.json
+apmyx-fixed/
+AM-DL downloads/
+AM-DL-*downloads/
+local-only/
+backend/providers/wrapper/
