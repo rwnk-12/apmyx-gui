@@ -27,7 +27,7 @@ def main():
     suffix = ".exe" if sys.platform == "win32" else ""
     output = PROVIDERS / "legacy" / "bin" / ("downloader" + suffix)
     output.parent.mkdir(exist_ok=True)
-    run(["go", "build", "-trimpath", "-o", output, "."], cwd=PROVIDERS / "legacy")
+    run(["go", "build", "-trimpath", "-buildvcs=false", "-o", output, "."], cwd=PROVIDERS / "legacy")
     runtime = BACKEND / "runtime"
     runtime.mkdir(exist_ok=True)
     lock = BACKEND / "runtime-requirements.txt"
