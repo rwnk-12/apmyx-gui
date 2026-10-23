@@ -7,8 +7,8 @@ from ..config import load_config
 from ..resources import app_dir
 from ..workers import Worker
 
-CHECK_INTERVAL = 24 * 60 * 60
 SNOOZE = 24 * 60 * 60
+CACHE_KEYS = ("release", "checked_at")
 
 
 def parse_version(value):
@@ -76,13 +76,21 @@ def load_state():
         return {}
 
 
-def save_state(**changes):
-    state = load_state()
-    state.update(changes)
+def write_state(state):
     try:
         state_path().write_text(json.dumps(state, indent=2), encoding="utf-8")
     except OSError as exc:
         logging.warning(f"Could not save update state: {exc}")
+
+
+def save_state(**changes):
+    write_state({**load_state(), **changes})
+
+
+def clear_cached_release():
+    state = load_state()
+    if any(key in state for key in CACHE_KEYS):
+        write_state({key: value for key, value in state.items() if key not in CACHE_KEYS})
 
 
 def skip_version(version):
@@ -122,18 +130,13 @@ class UpdatesMixin:
         self.thread_pool.start(worker)
 
     def _latest_release(self):
-        state = load_state()
-        cached = state.get("release")
-        if cached and time.time() - float(state.get("checked_at") or 0) < CHECK_INTERVAL:
-            return cached
+        clear_cached_release()
         api_url = f"https://api.github.com/repos/{self.REPO_OWNER}/{self.REPO_NAME}/releases/latest"
         response = self.session.get(api_url, timeout=10)
         if response.status_code != 200:
             logging.warning(f"GitHub API failed for update check: {response.status_code}")
-            return cached
-        release = release_info(response.json())
-        save_state(release=release, checked_at=time.time())
-        return release
+            return None
+        return release_info(response.json())
 
     def _check_for_updates_worker(self):
         try:

@@ -78,13 +78,14 @@ class UpdateTests(unittest.TestCase):
         self.assertEqual((picked["name"], picked["sha256"]), ("apmyx-1.1.0-windows.zip", "a" * 64))
         self.assertIsNone(updates.pick_asset(assets[:1]))
 
-    def test_check_emits_once_and_respects_cache_skip_snooze_and_setting(self):
+    def test_check_asks_github_every_launch_and_respects_skip_snooze_and_setting(self):
         controller = Controller(release("v1.2.0"))
         controller._check_for_updates_worker()
         controller.update_available.emit.assert_called_once()
         self.assertEqual(controller.update_available.emit.call_args.args[0]["version"], "1.2.0")
         controller._check_for_updates_worker()
-        self.assertEqual(controller.session.get.call_count, 1)
+        self.assertEqual(controller.session.get.call_count, 2)
+        self.assertEqual(controller.update_available.emit.call_count, 2)
         updates.snooze()
         controller._check_for_updates_worker()
         self.assertEqual(controller.update_available.emit.call_count, 2)
@@ -97,10 +98,19 @@ class UpdateTests(unittest.TestCase):
         controller._check_for_updates_worker()
         self.assertEqual(controller.update_available.emit.call_count, 2)
 
+    def test_answer_saved_by_older_versions_is_cleared_and_choices_kept(self):
+        for cached, latest, expected in (("1.1.0", "v1.2.0", 1), ("1.2.0", "v1.1.0", 0)):
+            with self.subTest(cached=cached, latest=latest):
+                updates.write_state({"release": updates.release_info(release(f"v{cached}")), "checked_at": time.time(),
+                                     "skipped": "1.0.9", "snoozed_until": 0})
+                controller = Controller(release(latest))
+                controller._check_for_updates_worker()
+                self.assertEqual(controller.update_available.emit.call_count, expected)
+                self.assertEqual(json.loads(updates.state_path().read_text()), {"skipped": "1.0.9", "snoozed_until": 0})
+
     def test_same_or_older_release_and_failures_stay_quiet(self):
         for data, status in ((release("v1.1.0"), 200), (release("v1.0.2"), 200), ({}, 403)):
             with self.subTest(status=status, tag=data.get("tag_name")):
-                updates.save_state(checked_at=0, release=None)
                 controller = Controller(data, status)
                 controller._check_for_updates_worker()
                 controller.update_available.emit.assert_not_called()
