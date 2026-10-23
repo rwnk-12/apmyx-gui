@@ -74,7 +74,7 @@ def run(action: str, port: int, timeout: int = 300):
     failure = next((line for line in reversed(lines) if line.startswith("Setup failed:")), None)
     if result.returncode != 0:
         return False, (failure or (lines[-1] if lines else f"Wrapper Lite {action} failed.")).removeprefix("Setup failed: ")
-    return True, next((line for line in reversed(lines) if "Wrapper Lite QEMU" in line), f"Wrapper Lite {action} finished.")
+    return True, next((line for line in reversed(lines) if line.startswith("Wrapper Lite")), f"Wrapper Lite {action} finished.")
 
 
 def start(port: int):

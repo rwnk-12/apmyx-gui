@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import yaml
 import requests
@@ -24,12 +25,24 @@ from .settings_schema import (
 )
 from core.bridge_client import request_for, run_request
 from core.config import STOREFRONT_BACKUP, config_path as default_config_path, sync_storefront
-from core import wrapper_lite
+from core import wrapper_control
+from core.workers import wrapper_pool
 from backend.router.common import DEFAULTS as WRAPPER_DEFAULTS, WRAPPERS, UNSUPPORTED, migrate_wrapper
 from backend.router.applemusicdecrypt.config import translate_settings as amd_settings, template as amd_template, VIDEO_TOKENS
 
 
 ACCENT = "#fd576b"
+LITE_BUTTON_COLORS = {
+    'start': {'background': '#6fdc8f', 'hover': '#55c876', 'border': '#4fbb6f', 'text': '#0b2614'},
+    'stop': {'background': '#f7808d', 'hover': '#e86272', 'border': '#dd5a69', 'text': '#2e0a10'},
+}
+
+
+def lite_button_style(kind):
+    colors = LITE_BUTTON_COLORS[kind]
+    return (f"QPushButton {{ background-color: {colors['background']}; border: 1px solid {colors['border']}; color: {colors['text']}; "
+            f"border-radius: 6px; padding: 6px 14px; font-weight: bold; }}"
+            f"QPushButton:hover {{ background-color: {colors['hover']}; }}")
 
 
 class ToggleSwitch(QWidget):
@@ -653,15 +666,26 @@ class SettingsPage(QWidget):
                 self.wrapper_check.clicked.connect(self._check_wrapper)
                 form_layout.addRow(self.wrapper_check, self.wrapper_status)
                 self.lite_controls = QWidget()
-                lite_layout = QHBoxLayout(self.lite_controls)
-                lite_layout.setContentsMargins(0, 0, 0, 0)
-                self.lite_start = QPushButton("Start Wrapper Lite")
-                self.lite_stop = QPushButton("Stop Wrapper Lite")
+                lite_column = QVBoxLayout(self.lite_controls)
+                lite_column.setContentsMargins(0, 0, 0, 0)
+                lite_layout = QHBoxLayout()
+                self.lite_start = QPushButton("Start Wrapper")
+                self.lite_stop = QPushButton("Stop Wrapper")
+                self._lite_action = None
+                self._closing = False
                 self.lite_start.clicked.connect(lambda: self._run_lite_action('start'))
                 self.lite_stop.clicked.connect(lambda: self._run_lite_action('stop'))
                 lite_layout.addWidget(self.lite_start)
                 lite_layout.addWidget(self.lite_stop)
                 lite_layout.addStretch()
+                lite_column.addLayout(lite_layout)
+                self.lite_hint = QLabel("Checking the wrapper...")
+                self.lite_hint.setWordWrap(True)
+                lite_column.addWidget(self.lite_hint)
+                self._lite_timer = QTimer(self)
+                self._lite_timer.setSingleShot(True)
+                self._lite_timer.setInterval(300)
+                self._lite_timer.timeout.connect(self._detect_lite)
                 form_layout.addRow(self.lite_controls)
                 self.wrapper_reset = QPushButton("Reset Wrapper to Defaults")
                 self.wrapper_reset.clicked.connect(self._on_reset_wrapper)
@@ -702,30 +726,22 @@ class SettingsPage(QWidget):
         controls = getattr(self, 'lite_controls', None)
         if controls is None or getattr(self, '_lite_worker', None) is not None:
             return
-        url = self.widgets['applemusicdecrypt-url'].text() if 'applemusicdecrypt-url' in self.widgets else ''
-        local = self.widgets['wrapper'].currentData() == 'applemusicdecrypt' and wrapper_lite.local_port(url) is not None
+        local = wrapper_control.endpoint(self.widgets['wrapper'].currentData(), self._collect()) is not None
         controls.setVisible(local)
-        if not local:
-            return
-        ready = wrapper_lite.installed()
-        hint = '' if ready else (
-            'Run setup-wrapper-lite-qemu.cmd once to install and sign in.' if os.name == 'nt'
-            else 'Run ./setup-wrapper-lite-qemu.sh once to install and sign in.')
-        for button in (self.lite_start, self.lite_stop):
-            button.setEnabled(ready)
-            button.setToolTip(hint)
+        if local:
+            self._lite_timer.start()
 
-    def _run_lite_action(self, action):
-        port = wrapper_lite.local_port(self.widgets['applemusicdecrypt-url'].text())
-        if port is None:
+    def _detect_lite(self):
+        if getattr(self, '_lite_worker', None) is not None:
             return
-        self.lite_start.setEnabled(False)
-        self.lite_stop.setEnabled(False)
-        self.wrapper_status.setText('Starting Wrapper Lite...' if action == 'start' else 'Stopping Wrapper Lite...')
+        wrapper = self.widgets['wrapper'].currentData()
+        settings = self._collect()
+        self._lite_generation = getattr(self, '_lite_generation', 0) + 1
+        generation = self._lite_generation
         owner = self
 
         class Signals(QObject):
-            finished = pyqtSignal(bool, str)
+            done = pyqtSignal(object)
 
         class Task(QRunnable):
             def __init__(self):
@@ -733,20 +749,87 @@ class SettingsPage(QWidget):
                 self.signals = Signals()
 
             def run(self):
-                succeeded, message = (wrapper_lite.start if action == 'start' else wrapper_lite.stop)(port)
-                self.signals.finished.emit(succeeded, message)
+                try:
+                    state = wrapper_control.detect(wrapper, settings)
+                except Exception as exc:
+                    logging.exception("Could not check the wrapper state")
+                    state = wrapper_control.State(wrapper, wrapper_control.endpoint(wrapper, settings), message=f"Could not check the wrapper: {exc}")
+                self.signals.done.emit(state)
+
+        def done(state):
+            if owner._closing or owner._lite_generation != generation or getattr(owner, '_lite_worker', None) is not None:
+                return
+            owner._apply_lite_state(state)
+
+        task = Task()
+        task.signals.done.connect(done)
+        self._lite_detector = task
+        wrapper_pool().start(task)
+
+    def lite_busy(self):
+        return getattr(self, '_lite_worker', None) is not None
+
+    def begin_close(self):
+        self._closing = True
+        timer = getattr(self, '_lite_timer', None)
+        if timer is not None:
+            timer.stop()
+
+    def _apply_lite_state(self, state):
+        self._lite_state = state
+        self.lite_controls.setVisible(state.local)
+        self.lite_start.setText(f"Start {state.label}")
+        self.lite_stop.setText(f"Stop {state.label}")
+        self.lite_hint.setText(state.message)
+        running = state.running is not None
+        stopped = not running and state.start_plan is not None
+        self.lite_start.setStyleSheet(lite_button_style('start') if running else '')
+        self.lite_stop.setStyleSheet(lite_button_style('stop') if stopped else '')
+
+    def _run_lite_action(self, action):
+        wrapper = self.widgets['wrapper'].currentData()
+        label = wrapper_control.LABELS.get(wrapper, 'Wrapper')
+        if getattr(self, '_lite_worker', None) is not None:
+            busy = 'starting' if self._lite_action == 'start' else 'stopping'
+            self.lite_hint.setText(f"{label} is already {busy}, please wait.")
+            return
+        settings = self._collect()
+        self._lite_action = action
+        self.lite_hint.setText(f"Starting {label}..." if action == 'start' else f"Stopping {label}...")
+        owner = self
+
+        class Signals(QObject):
+            finished = pyqtSignal(object, str)
+
+        class Task(QRunnable):
+            def __init__(self):
+                super().__init__()
+                self.signals = Signals()
+
+            def run(self):
+                try:
+                    state = wrapper_control.detect(wrapper, settings)
+                    outcome, message = (wrapper_control.start if action == 'start' else wrapper_control.stop)(state)
+                except Exception as exc:
+                    logging.exception("%s %s failed", label, action)
+                    outcome, message = False, f"Could not {action} {label}: {exc}"
+                self.signals.finished.emit(outcome, message)
 
         task = Task()
 
-        def finished(succeeded, message):
+        def finished(outcome, message):
             owner._lite_worker = None
+            if outcome is False:
+                logging.error("%s %s failed: %s", label, action, message)
+            if owner._closing:
+                return
             owner.wrapper_status.setText(message)
             owner._update_lite_controls()
             owner.wrapper_state_changed.emit()
 
         task.signals.finished.connect(finished)
         self._lite_worker = task
-        self.thread_pool.start(task)
+        wrapper_pool().start(task)
 
     def _update_lyrics_fields(self, *args):
         mode = self.widgets.get('lyrics-mode')
@@ -755,6 +838,15 @@ class SettingsPage(QWidget):
             unsynced = self.widgets['wrapper'].currentData() == 'applemusicdecrypt' and mode.currentData() == 'unsynced'
             format_widget.setEnabled(not unsynced)
             format_widget.setToolTip('Unsynced lyrics use plain text (.txt).' if unsynced else 'LRC preserves line or word timing. TTML preserves the original structure.')
+
+    def set_storefront(self, code):
+        self.config['storefront'] = code
+        widget = self.widgets.get('storefront')
+        if widget is not None:
+            blocked = widget.blockSignals(True)
+            widget.setText(code)
+            widget.blockSignals(blocked)
+        self._sync_storefront_widgets()
 
     def _sync_storefront_widgets(self, *args):
         general = self.widgets.get('storefront')
@@ -972,7 +1064,7 @@ class SettingsPage(QWidget):
             widget.textChanged.connect(self._mark_dirty)
             if key in ('applemusicdecrypt-url', 'applemusicdecrypt-api-key'):
                 widget.textChanged.connect(self._invalidate_applemusicdecrypt_regions)
-            if key == 'applemusicdecrypt-url':
+            if key in ('applemusicdecrypt-url', 'wrapper-v2-url', 'decrypt-m3u8-port'):
                 widget.textChanged.connect(self._update_lite_controls)
             if isinstance(default_value, int):
                 minimum, maximum = INTEGER_RANGES.get(key, (1, 2147483647))
@@ -1077,6 +1169,7 @@ class SettingsPage(QWidget):
         btn.setEnabled(True); btn.setText("Detect")
 
     def _on_storefront_error(self, err: str, btn: QPushButton):
+        logging.error("Storefront detection failed: %s", err)
         QMessageBox.warning(self, "Detection failed", err)
         btn.setEnabled(True); btn.setText("Detect")
 
@@ -1120,6 +1213,7 @@ class SettingsPage(QWidget):
                 yaml.dump(data, f, sort_keys=False, allow_unicode=True)
             return True
         except Exception as e:
+            logging.error("Could not write config: %s", e)
             QMessageBox.critical(self, "Save failed", f"Could not write config: {e}")
             return False
 

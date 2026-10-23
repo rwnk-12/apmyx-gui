@@ -70,8 +70,7 @@ function Get-QemuArguments {
     param([string]$Runtime, [ValidateRange(1, 65535)][int]$HttpPort, [ValidateRange(1, 65535)][int]$MonitorPort, [ValidateSet('auto', 'whpx', 'tcg')][string]$Acceleration = 'auto', [switch]$Login, [int]$SerialPort)
     $assets = Join-Path $Runtime 'package/qemu'
     $arguments = @('-L', (Join-Path $assets 'bin'))
-    if ($Acceleration -ne 'tcg') { $arguments += @('-accel', 'whpx,kernel-irqchip=off') }
-    if ($Acceleration -ne 'whpx') { $arguments += @('-accel', 'tcg') }
+    if ($Acceleration -eq 'tcg') { $arguments += @('-accel', 'tcg') } else { $arguments += @('-accel', 'whpx,kernel-irqchip=off') }
     $cmdline = 'console=ttyS0 quiet net.ifnames=0 biosdevname=0 noapic'
     if ($Login) { $cmdline += ' apmyx_login=1' }
     $disk = (Join-Path $Runtime 'session/data.img').Replace('\', '/').Replace(',', ',,')
@@ -137,14 +136,14 @@ function Invoke-QemuMonitor {
 }
 
 function Stop-LiteQemu {
-    param([string]$Runtime)
+    param([string]$Runtime, [int]$Timeout = 90)
     $running = Get-LiteQemuProcess $Runtime
     if ($running -and -not $running.Process.WaitForExit(300)) {
         Write-SetupStatus 'Shutting down the QEMU guest and saving its session...'
         try { Invoke-QemuMonitor -Port $running.State.monitor_port -Command 'human-monitor-command' -Arguments @{ 'command-line' = 'sendkey ctrl-alt-delete' } } catch {
             if (-not $running.Process.HasExited) { throw }
         }
-        if (-not $running.Process.WaitForExit(90000)) { throw 'The guest did not shut down cleanly. QEMU was left running to preserve its session disk.' }
+        if (-not $running.Process.WaitForExit($Timeout * 1000)) { throw 'The guest did not shut down cleanly. QEMU was left running to preserve its session disk.' }
     }
     $statePath = Join-Path $Runtime 'process.json'
     if (Test-Path -LiteralPath $statePath) { Remove-Item -LiteralPath $statePath }
@@ -181,6 +180,7 @@ function Start-LiteQemu {
         $process = [Diagnostics.Process]::Start($info)
     } else {
         $process = Start-Process -FilePath $executable -ArgumentList $commandLine -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $Runtime 'service-host.log') -RedirectStandardError (Join-Path $Runtime 'service-error.log')
+        $null = $process.Handle
     }
     @{ pid = $process.Id; started = $process.StartTime.ToUniversalTime().Ticks.ToString(); http_port = $HttpPort; monitor_port = $monitorPort } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Runtime 'process.json') -Encoding UTF8
     $process | Add-Member -NotePropertyName ApmyxSerialPort -NotePropertyValue $serialPort
@@ -207,18 +207,78 @@ function Open-QemuSerial {
     throw 'QEMU login console did not become available.'
 }
 
+function Get-QemuFailureDetail {
+    param([string]$Runtime, $Process)
+    $parts = @()
+    if ($Process -and $Process.HasExited -and $null -ne $Process.ExitCode) {
+        $code = '0x{0:X8}' -f [int]$Process.ExitCode
+        $meaning = @{
+            '0xC0000135' = 'a file QEMU needs is missing'
+            '0xC0000139' = 'this Windows version is too old for the bundled QEMU'
+            '0xC0000428' = 'Windows blocked a QEMU file (Smart App Control or Application Control)'
+            '0xC0E90002' = 'Windows Application Control blocked QEMU'
+            '0xC0000005' = 'QEMU crashed'
+            '0xC0000409' = 'QEMU crashed'
+        }[$code]
+        $parts += if ($meaning) { "exit code $code, $meaning" } else { "exit code $code" }
+    }
+    $log = Join-Path $Runtime 'service-error.log'
+    if (Test-Path -LiteralPath $log) {
+        $lines = @(Get-Content -LiteralPath $log -ErrorAction SilentlyContinue | Where-Object { $_.Trim() -and $_ -notmatch "host doesn't support requested feature" } | Select-Object -Last 3 | ForEach-Object { ($_ -replace '^.*qemu-system-x86_64(\.exe)?:\s*', '').Trim() })
+        if ($lines.Count) { $parts += 'QEMU said: ' + ($lines -join ' | ') }
+    }
+    return ($parts -join '. ')
+}
+
+function Get-QemuHostSummary {
+    $cpu = try { (Get-CimInstance Win32_Processor -ErrorAction Stop | Select-Object -First 1).Name.Trim() } catch { 'unknown CPU' }
+    $hypervisor = try { [bool](Get-CimInstance Win32_ComputerSystem -ErrorAction Stop).HypervisorPresent } catch { $false }
+    $platform = Test-Path -LiteralPath (Join-Path $env:SystemRoot 'System32\WinHvPlatform.dll')
+    return "Windows $([Environment]::OSVersion.Version), $cpu, hypervisor running: $hypervisor, Windows Hypervisor Platform installed: $platform"
+}
+
 function Wait-LiteQemu {
-    param([string]$Runtime, [int]$HttpPort, [int]$Timeout = 180)
+    param([string]$Runtime, [int]$HttpPort, [int]$Timeout = 180, $Process)
     $deadline = [DateTime]::UtcNow.AddSeconds($Timeout)
     $nextUpdate = [DateTime]::UtcNow
     do {
-        if (-not (Get-LiteQemuProcess $Runtime)) { throw 'QEMU exited during startup. Check service-error.log in the QEMU runtime folder, or try -Acceleration tcg if acceleration is unavailable.' }
+        if (-not (Get-LiteQemuProcess $Runtime)) {
+            $detail = Get-QemuFailureDetail -Runtime $Runtime -Process $Process
+            throw ('QEMU exited during startup' + $(if ($detail) { " ($detail)" } else { '' }) + '.')
+        }
         $status = Get-LiteQemuStatus $HttpPort
         if ($status.Ready) { return $status }
         if ([DateTime]::UtcNow -ge $nextUpdate) { Write-SetupStatus 'Waiting for the QEMU guest HTTP service...'; $nextUpdate = [DateTime]::UtcNow.AddSeconds(10) }
         Start-Sleep -Milliseconds 500
     } while ([DateTime]::UtcNow -lt $deadline)
-    throw 'QEMU did not become ready in time. Check its runtime logs or retry with -Acceleration tcg.'
+    throw "QEMU did not become ready within $Timeout seconds."
+}
+
+function Remove-LiteQemu {
+    param([string]$Runtime, $Process)
+    try { Stop-LiteQemu $Runtime -Timeout 15 } catch {
+        if ($Process -and -not $Process.HasExited) { $Process.Kill(); [void]$Process.WaitForExit(10000) }
+    }
+    $statePath = Join-Path $Runtime 'process.json'
+    if (Test-Path -LiteralPath $statePath) { Remove-Item -LiteralPath $statePath }
+}
+
+function Test-QemuHardwareAcceleration {
+    $platform = Test-Path -LiteralPath (Join-Path $env:SystemRoot 'System32\WinHvPlatform.dll')
+    $hypervisor = try { [bool](Get-CimInstance Win32_ComputerSystem -ErrorAction Stop).HypervisorPresent } catch { $false }
+    return $platform -and $hypervisor
+}
+
+function Start-LiteQemuReady {
+    param([string]$Runtime, [int]$HttpPort, [ValidateSet('auto', 'whpx', 'tcg')][string]$Acceleration = 'auto')
+    $process = Start-LiteQemu -Runtime $Runtime -HttpPort $HttpPort -Acceleration $Acceleration
+    try {
+        return Wait-LiteQemu -Runtime $Runtime -HttpPort $HttpPort -Process $process -Timeout $(if ($Acceleration -eq 'tcg') { 240 } else { 90 })
+    } catch {
+        $message = $_.Exception.Message
+        Remove-LiteQemu -Runtime $Runtime -Process $process
+        throw $message
+    }
 }
 
 function Invoke-LiteQemuLogin {
@@ -287,4 +347,4 @@ function Invoke-LiteQemuLogin {
     }
 }
 
-Export-ModuleMember -Function New-QemuInitramfs, Initialize-LiteQemu, Get-QemuArguments, Get-LiteQemuProcess, Invoke-QemuMonitor, Stop-LiteQemu, Get-LiteQemuStatus, Start-LiteQemu, Wait-LiteQemu, Invoke-LiteQemuLogin
+Export-ModuleMember -Function New-QemuInitramfs, Initialize-LiteQemu, Get-QemuArguments, Get-LiteQemuProcess, Invoke-QemuMonitor, Stop-LiteQemu, Get-LiteQemuStatus, Start-LiteQemu, Wait-LiteQemu, Invoke-LiteQemuLogin, Get-QemuFailureDetail, Get-QemuHostSummary, Start-LiteQemuReady, Remove-LiteQemu, Test-QemuHardwareAcceleration

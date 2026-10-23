@@ -57,7 +57,7 @@ try {
     Assert-True (($arguments -join ' ') -notmatch 'apmyx_login=1|--login|password') 'Service launch has no credential parameters'
     $loginArguments = @(Get-QemuArguments -Runtime $temporary -HttpPort 23450 -MonitorPort 23451 -SerialPort 23452 -Login)
     Assert-True (($loginArguments -join ' ') -match 'apmyx_login=1') 'Login selects the serial-input guest mode'
-    Assert-True ($loginArguments -contains 'whpx,kernel-irqchip=off' -and $loginArguments -contains 'tcg') 'Automatic acceleration has a software fallback'
+    Assert-True ($loginArguments -contains 'whpx,kernel-irqchip=off' -and $loginArguments -notcontains 'tcg') 'Automatic acceleration never falls back to slow software emulation'
     Assert-True ($loginArguments -contains 'tcp:127.0.0.1:23452,server=on,wait=on') 'Login serial transport is local and waits for the host'
     $currentProcess = Get-Process -Id $PID
     @{ pid = $PID; started = $currentProcess.StartTime.ToUniversalTime().Ticks.ToString(); monitor_port = 23451; http_port = 23450 } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $temporary 'process.json')
@@ -150,6 +150,61 @@ try {
     Assert-True (-not (Get-LiteQemuStatus 23450).Ready) 'Reject malformed account regions'
     & $module { function script:Invoke-RestMethod { throw 'unavailable' } }
     Assert-True (-not (Get-LiteQemuStatus 23450).Ready) 'Handle unavailable wrapper'
+
+    $failureRuntime = Join-Path $temporary 'failure'
+    [IO.Directory]::CreateDirectory($failureRuntime) | Out-Null
+    [IO.File]::WriteAllLines((Join-Path $failureRuntime 'service-error.log'), @(
+        "C:\apmyx\qemu-system-x86_64.exe: warning: host doesn't support requested feature: CPUID[eax=80000001h].ECX.svm [bit 2]",
+        'C:\apmyx\qemu-system-x86_64.exe: WHPX: Failed to emulate MMIO access with EmulatorReturnStatus: 2'))
+    $exited = [pscustomobject]@{ HasExited = $true; ExitCode = -1073741515 }
+    $detail = Get-QemuFailureDetail -Runtime $failureRuntime -Process $exited
+    Assert-True ($detail -match '0xC0000135' -and $detail -match 'missing') 'Explain Windows exit codes in plain words'
+    Assert-True ($detail -match 'Failed to emulate MMIO access' -and $detail -notmatch 'svm') 'Show the real QEMU error and hide harmless CPU warnings'
+    Assert-True ((Get-QemuFailureDetail -Runtime $failureRuntime -Process ([pscustomobject]@{ HasExited = $true; ExitCode = -1073740760 })) -match 'Smart App Control') 'Recognize Application Control blocks'
+
+    Assert-True ((Test-QemuHardwareAcceleration) -is [bool]) 'Report whether QEMU hardware acceleration is possible'
+    & $module {
+        $script:boots = [Collections.Generic.List[string]]::new()
+        $script:removed = 0
+        function script:Start-LiteQemu { param($Runtime, $HttpPort, $Acceleration, [switch]$Login) $script:boots.Add($Acceleration); [pscustomobject]@{ HasExited = $true; ExitCode = -1073741819 } }
+        function script:Wait-LiteQemu { param($Runtime, $HttpPort, $Timeout, $Process) throw 'QEMU exited during startup (exit code 0xC0000005, QEMU crashed).' }
+        function script:Remove-LiteQemu { param($Runtime, $Process) $script:removed++ }
+    }
+    Assert-Throws { Start-LiteQemuReady -Runtime $failureRuntime -HttpPort 23450 -Acceleration auto } 'QEMU exited during startup .*crashed'
+    Assert-True (((& $module { $script:boots }) -join ',') -eq 'auto' -and (& $module { $script:removed }) -eq 1) 'A failed boot is cleaned up and never retried in software mode'
+
+    Import-Module (Join-Path $scripts 'modules/Docker.psm1') -Force
+    $docker = Get-Module Docker
+    $fakeScripts = Join-Path $temporary 'fake-scripts'
+    [IO.Directory]::CreateDirectory((Join-Path $fakeScripts 'qemu')) | Out-Null
+    '{"url":"https://example.invalid/q.zip"}' | Set-Content (Join-Path $fakeScripts 'qemu/source.json')
+    Assert-Throws { Get-LiteImageSource $fakeScripts } 'not configured'
+    $withoutManifest = '{"docker":{"url":"https://example.invalid/i.tar.gz","sha256":"' + ('a' * 64) + '","size":1,"image":"apmyx/wrapper-lite:test","id":"sha256:' + ('b' * 64) + '"}}'
+    $withoutManifest | Set-Content (Join-Path $fakeScripts 'qemu/source.json')
+    Assert-Throws { Get-LiteImageSource $fakeScripts } 'not configured'
+    $pinned = '{"docker":{"url":"https://example.invalid/i.tar.gz","sha256":"' + ('a' * 64) + '","size":1,"image":"apmyx/wrapper-lite:test","id":"sha256:' + ('b' * 64) + '","manifest":"sha256:' + ('c' * 64) + '"}}'
+    $pinned | Set-Content (Join-Path $fakeScripts 'qemu/source.json')
+    Assert-True ((Get-LiteImageSource $fakeScripts).image -eq 'apmyx/wrapper-lite:test') 'Docker image identity is pinned by hash and image ID'
+
+    & $docker {
+        $script:calls = [Collections.Generic.List[string]]::new()
+        $script:fakeContainer = $null
+        function script:Get-LiteContainer { param($Name) $script:fakeContainer }
+        function script:Invoke-Docker { param([string[]]$Arguments, $TimeoutSeconds) $script:calls.Add($Arguments -join ' '); @() }
+        function script:Write-SetupStatus { param([string]$Message) }
+    }
+    $binding = { param($Port) [pscustomobject]@{ '12340/tcp' = @([pscustomobject]@{ HostPort = [string]$Port }) } }
+    & $docker { param($b) $script:fakeContainer = [pscustomobject]@{ Config = [pscustomobject]@{ Image = 'apmyx/wrapper-lite:test' }; HostConfig = [pscustomobject]@{ PortBindings = (& $b 23450) }; State = [pscustomobject]@{ Running = $false } } } $binding
+    Start-LiteContainer -Image 'apmyx/wrapper-lite:test' -HttpPort 23450
+    Assert-True ((& $docker { $script:calls -join ';' }) -eq 'start apmyx-wrapper-lite') 'Reuse a stopped container that already matches'
+    & $docker { param($b) $script:calls.Clear(); $script:fakeContainer = [pscustomobject]@{ Config = [pscustomobject]@{ Image = 'apmyx/wrapper-lite:old' }; HostConfig = [pscustomobject]@{ PortBindings = (& $b 23450) }; State = [pscustomobject]@{ Running = $true } } } $binding
+    Start-LiteContainer -Image 'apmyx/wrapper-lite:test' -HttpPort 23450
+    $calls = & $docker { @($script:calls) }
+    Assert-True ($calls[0] -eq 'rm --force apmyx-wrapper-lite') 'Replace a container built from an older image'
+    Assert-True ($calls[1] -match 'type=volume,source=apmyx-wrapper-lite-data,target=/app/rootfs/data' -and $calls[1] -match '--publish 127.0.0.1:23450:12340' -and $calls[1] -match 'apmyx/wrapper-lite:test$') 'Keep the login volume and publish only on loopback'
+    & $docker { param($b) $script:calls.Clear(); $script:fakeContainer = [pscustomobject]@{ Config = [pscustomobject]@{ Image = 'apmyx/wrapper-lite:test' }; HostConfig = [pscustomobject]@{ PortBindings = (& $b 34560) }; State = [pscustomobject]@{ Running = $false } } } $binding
+    Start-LiteContainer -Image 'apmyx/wrapper-lite:test' -HttpPort 23450
+    Assert-True ((& $docker { $script:calls[0] }) -eq 'rm --force apmyx-wrapper-lite') 'Recreate the container when the port changes'
     Write-Output "$script:checks QEMU setup checks passed."
 } finally {
     $resolved = [IO.Path]::GetFullPath($temporary)

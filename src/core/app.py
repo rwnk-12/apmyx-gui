@@ -7,6 +7,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot, QThreadPool
 
+from .hints import explain
 from .resources import resource_path
 from .token import DeveloperTokenProvider
 from .config import sync_storefront
@@ -120,7 +121,8 @@ class AppController(
     @pyqtSlot(str, str)
     def update_status_and_log(self, message: str, level: str = "info"):
         if level == "info":
-            logging.info(message)
+            logging.info(message, stacklevel=2)
         elif level == "error":
-            logging.error(message)
+            message = explain(message)
+            logging.error(message, stacklevel=2)
         self.status_updated.emit(message)

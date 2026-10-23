@@ -1,7 +1,17 @@
 import asyncio
 import logging
 
-from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot, QRunnable
+from PyQt6 import sip
+from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot, QRunnable, QThreadPool
+
+_wrapper_pool = None
+
+
+def wrapper_pool():
+    global _wrapper_pool
+    if _wrapper_pool is None or sip.isdeleted(_wrapper_pool):
+        _wrapper_pool = QThreadPool()
+    return _wrapper_pool
 
 
 class SearchWorkerSignals(QObject):

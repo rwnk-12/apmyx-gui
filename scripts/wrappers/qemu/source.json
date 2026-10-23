@@ -25,5 +25,14 @@
       "sha256": "4d49f44301a1a13b9d9582e30c532b432ae0aaef684ffe05ee1c018a02a6d79a",
       "size": 86288919
     }
+  },
+  "docker": {
+    "url": "https://github.com/rwnk-12/apmyx-setup-lite/releases/download/lite-2fd7e0e-4/wrapper-lite-docker-linux-amd64.tar.gz",
+    "sha256": "ec951ad95d0c96255bdc52a2bbe1443dbbfd180eb0fc631fcf1de7f2c8545b60",
+    "size": 98289479,
+    "image": "apmyx/wrapper-lite:2fd7e0e-4",
+    "id": "sha256:5eed9ee04418bea9cce4c9d70f40f614c96eb30b8692a4fb962dd149dd2fd6ed",
+    "manifest": "sha256:3ce6d3aeadfd71bdb19d4e03e648191ff12c8485b10aca9d9603bc70ad648dbd",
+    "release": "lite-2fd7e0e-4"
   }
 }

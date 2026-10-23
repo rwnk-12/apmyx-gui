@@ -17,6 +17,7 @@ backend/**/cookies.txt
 backend/wrapper-runtime/
 config.yaml
 update-state.json
+logs/
 apmyx-fixed/
 AM-DL downloads/
 AM-DL-*downloads/

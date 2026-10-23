@@ -122,7 +122,7 @@ class ProgressTests(unittest.TestCase):
 
         output = io.StringIO()
         logger = logging.getLogger()
-        with patch.object(logger, "handlers", []), patch.object(logger, "level", logger.level), patch.object(sys, "stdout", output), patch.object(sys, "excepthook", sys.excepthook):
+        with patch.object(logger, "handlers", []), patch.object(logger, "level", logger.level), patch.object(sys, "stdout", output), patch.object(sys, "excepthook", sys.excepthook), patch("main.setup_file_logging"):
             setup_logging()
             setup_logging()
             logging.info("one progress record")

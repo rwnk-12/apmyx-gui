@@ -2,6 +2,7 @@ import os
 import sys
 import logging
 import subprocess
+import time
 import yaml
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget,
@@ -143,16 +144,28 @@ class MainWindow(QMainWindow, UiSetupFeatures, LayoutAnimationFeatures, SearchFe
         logging.info("MainWindow force clearing all job queues.")
         self._disco_batch = None
 
+    def _finish_wrapper_action(self, timeout=30):
+        page = getattr(self, 'settings_page', None)
+        if page is None:
+            return
+        if page.lite_busy():
+            logging.info("Waiting for the wrapper to finish starting or stopping before closing...")
+            deadline = time.monotonic() + timeout
+            while page.lite_busy() and time.monotonic() < deadline:
+                QApplication.processEvents()
+                time.sleep(0.05)
+            if page.lite_busy():
+                logging.warning("The wrapper was still starting or stopping when apmyx closed.")
+        page.begin_close()
+
     def _stop_wrapper_lite_if_started(self):
-        from core import wrapper_lite
-        from core.config import load_config
+        from core import wrapper_control
 
         try:
-            port = wrapper_lite.local_port(load_config().get('applemusicdecrypt-url', ''))
-            if port is not None and wrapper_lite.stop_if_started(port):
-                logging.info("Stopping Wrapper Lite started by this session.")
+            for wrapper in wrapper_control.stop_started():
+                logging.info("Stopping %s started by this session.", wrapper_control.LABELS.get(wrapper, wrapper))
         except Exception as exc:
-            logging.warning(f"Could not stop Wrapper Lite: {exc}")
+            logging.warning(f"Could not stop the wrapper: {exc}")
 
     def _restart_application(self):
         logging.info("Scheduling application restart...")
@@ -175,10 +188,30 @@ class MainWindow(QMainWindow, UiSetupFeatures, LayoutAnimationFeatures, SearchFe
         dialog = StorefrontRequiredDialog(self)
         mw_rect = self.geometry()
         dialog.move(mw_rect.center() - dialog.rect().center())
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.open_settings_page()
-            if hasattr(self.settings_page, 'focus_storefront'):
-                QTimer.singleShot(100, self.settings_page.focus_storefront)
+        if dialog.exec() != QDialog.DialogCode.Accepted or not dialog.storefront:
+            return False
+        return self._save_storefront(dialog.storefront)
+
+    def _save_storefront(self, code):
+        try:
+            try:
+                with open(config_path(), 'r', encoding='utf-8') as f:
+                    config = yaml.safe_load(f) or {}
+            except FileNotFoundError:
+                config = {}
+            config['storefront'] = code
+            with open(config_path(), 'w', encoding='utf-8') as f:
+                yaml.dump(config, f, sort_keys=False, allow_unicode=True)
+        except Exception as exc:
+            logging.error("Could not save the storefront: %s", exc)
+            self.show_popup(f"Could not save the storefront: {exc}")
+            return False
+        self.controller.apply_runtime_settings(config)
+        page = getattr(self, 'settings_page', None)
+        if page is not None and hasattr(page, 'set_storefront'):
+            page.set_storefront(code)
+        self.statusBar().showMessage(f"Storefront set to {code.upper()}.", 4000)
+        return True
 
     def _show_link_spinner(self):
         if hasattr(self.search_input, 'setLoading'):
@@ -249,12 +282,15 @@ class MainWindow(QMainWindow, UiSetupFeatures, LayoutAnimationFeatures, SearchFe
             return
         self._is_shutting_down = True
         event.ignore()
+        self.hide()
+        QApplication.processEvents()
         try:
             logging.info("Initiating shutdown sequence...")
             if hasattr(self, 'player'):
                 self.player.cleanup()
             self.download_worker.cancel_all_jobs()
             self.controller.stop_all_tasks()
+            self._finish_wrapper_action()
             self._stop_wrapper_lite_if_started()
             logging.info("Waiting for thread pools to shut down...")
             if not self.controller.thread_pool.waitForDone(2000):

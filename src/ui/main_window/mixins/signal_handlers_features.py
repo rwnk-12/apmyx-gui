@@ -835,7 +835,8 @@ class SignalHandlersFeatures:
         self._hide_link_spinner()
         
         if "/v1/catalog//" in error_message and "400" in error_message:
-            self.show_storefront_required_dialog()
+            if self.show_storefront_required_dialog() and self.current_query:
+                self._execute_search(self.current_query)
         else:
             self.show_popup(f"Search failed: {error_message}")
 

@@ -1,8 +1,13 @@
+try:
+    import truststore
+    truststore.inject_into_ssl()
+except ImportError:
+    pass
+
 import sys
 import yaml
 import logging
 import os
-import traceback
 import atexit
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtGui import QFontDatabase, QFont, QIcon
@@ -12,6 +17,7 @@ from ui.main_window import MainWindow
 from ui.main_window.dialogs import UpdateDialog 
 from core.config import config_path, upgrade_config
 from core.resources import app_dir
+from core.logs import log_unhandled, setup_file_logging
 
 
 APP_FONT_FAMILY = "Inter Tight"
@@ -96,7 +102,7 @@ DARK_STYLESHEET = f"""
     }}
 """
 
-VERSION = "1.1.0"
+VERSION = "1.1.1"
 REPO_OWNER = "rwnk-12"
 REPO_NAME = "apmyx-gui"
 RELEASES_URL = f"https://github.com/{REPO_OWNER}/{REPO_NAME}/releases"
@@ -114,12 +120,14 @@ def resource_path(relative_path):
 
 def setup_logging():
 
+    handlers = [logging.StreamHandler(sys.stdout)] if sys.stdout else []
     logging.basicConfig(
         level=logging.INFO,
         format='[PYTHON] %(asctime)s - %(levelname)s - %(message)s',
-        stream=sys.stdout,
+        handlers=handlers or [logging.NullHandler()],
         force=True,
     )
+    setup_file_logging(VERSION)
 
     def handle_exception(exc_type, exc_value, exc_traceback):
 
@@ -127,8 +135,7 @@ def setup_logging():
             sys.__excepthook__(exc_type, exc_value, exc_traceback)
             return
         
-        tb_info = "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
-        logging.critical(f"Unhandled exception:\n{tb_info}")
+        log_unhandled(exc_type, exc_value, exc_traceback, "main thread")
         QApplication.quit()
 
     sys.excepthook = handle_exception

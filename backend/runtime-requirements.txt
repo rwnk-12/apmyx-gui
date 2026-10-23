@@ -46,7 +46,7 @@ psutil==7.2.2
 pycparser==3.11
 pydantic==2.13.5
 pydantic-core==2.46.5
-pycryptodome==3.24.1
+pycryptodome==3.23.0
 pygments==2.21.0
 pyinstaller-hooks-contrib==2026.8
 pyinstaller==6.22.3
@@ -65,6 +65,7 @@ tabulate==0.10.0
 temari==0.3.1
 tenacity==9.1.4
 textual==8.2.8
+truststore==0.10.5
 typing_extensions==4.16.0
 typing-inspection==0.4.4
 Unidecode==1.4.0

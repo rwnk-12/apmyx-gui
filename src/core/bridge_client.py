@@ -10,10 +10,6 @@ import uuid
 
 from .resources import resource_path
 
-project_root = resource_path("")
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
-
 from backend.router.common import BackendError, snapshot, terminate_tree
 from backend.shared.progress import PROGRESS_INTERVAL
 from backend.shared.files import cleanup_publications

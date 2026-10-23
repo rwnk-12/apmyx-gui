@@ -13,6 +13,7 @@ from PyQt6.QtGui import QColor, QPainter, QPixmap, QIcon
 from PyQt6.QtSvg import QSvgRenderer
 from ..controls import SegmentedQualitySelector, AACQualitySelector, QueueToggleBar, AnnouncementBanner
 from ..utils import create_view_icon, render_svg_icon, resource_path
+from core.workers import wrapper_pool
 import requests
 from PyQt6.QtCore import pyqtSignal, QObject, QRunnable, QThreadPool
 
@@ -130,10 +131,12 @@ class UiSetupFeatures:
         task = WrapperStatusTask()
         task.signals.finished.connect(self._on_wrapper_status)
         self._wrapper_status_task = task
-        QThreadPool.globalInstance().start(task)
+        wrapper_pool().start(task)
 
     def _on_wrapper_status(self, wrapper, connected, message):
         self._wrapper_check_running = False
+        if getattr(self, '_is_shutting_down', False):
+            return
         self._set_wrapper_badge('connected' if connected else 'offline', wrapper, message)
 
     def _set_wrapper_badge(self, state, wrapper, message):

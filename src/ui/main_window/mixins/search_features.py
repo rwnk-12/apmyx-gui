@@ -16,8 +16,7 @@ class SearchFeatures:
     def _ensure_storefront_or_prompt(self) -> bool:
         sf = getattr(self.controller, "storefront", "") or ""
         if not sf.strip():
-            self.show_storefront_required_dialog()
-            return False
+            return self.show_storefront_required_dialog()
         return True
 
     def handle_input(self):

@@ -3,6 +3,7 @@ import copy
 import os
 import tempfile
 from .bridge_client import BackendError, consume, request_for, snapshot, start_process, terminate_tree
+from .hints import explain
 from backend.shared.progress import gui_progress
 import logging
 import re
@@ -12,6 +13,10 @@ import yaml
 
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot, QRunnable, QThreadPool
 from .config import config_path
+
+
+def explain_failure(message):
+    return explain(message)
 
 
 def saved_message(folders):
@@ -152,6 +157,7 @@ class DownloadJobRunner(QRunnable):
                 return
 
             if not any(p.match(msg) for p in self.info_stderr_patterns):
+                logging.error("Download job %s: %s", self.job_id, msg)
                 self.error_lines.append(msg)
                 self.signals.error_line.emit(self.job_id, msg)
 
@@ -411,6 +417,7 @@ class DownloadJobRunner(QRunnable):
                     elif record["event"] == "log":
                         message = record.get("message", "")
                         if record.get("level") == "error":
+                            logging.error("Download job %s: %s", self.job_id, message)
                             self.error_lines.append(message)
                             self.signals.error_line.emit(self.job_id, message)
 
@@ -420,13 +427,18 @@ class DownloadJobRunner(QRunnable):
             if self.worker_ref.was_terminated_intentionally:
                 self.signals.finished.emit(self.job_id, False, "Cancelled.", self.skipped_tracks)
             elif exc.retryable and exc.code == "wrapper_unavailable":
+                logging.warning("Download job %s paused, wrapper unavailable: %s", self.job_id, exc)
                 self._pause_triggered = True
                 self.signals.error_line.emit(self.job_id, "wrapper_unavailable: " + str(exc))
                 self.signals.pause_queue_requested.emit(self.job_id)
             else:
-                self.signals.finished.emit(self.job_id, False, str(exc), self.skipped_tracks)
+                message = explain_failure(str(exc))
+                logging.error("Download job %s failed (%s): %s | %s", self.job_id, exc.code, message, self.command.get("url", ""))
+                self.signals.finished.emit(self.job_id, False, message, self.skipped_tracks)
         except Exception as exc:
-            self.signals.finished.emit(self.job_id, False, str(exc), self.skipped_tracks)
+            message = explain_failure(str(exc))
+            logging.exception("Download job %s failed: %s | %s", self.job_id, message, self.command.get("url", ""))
+            self.signals.finished.emit(self.job_id, False, message, self.skipped_tracks)
         finally:
             self.worker_ref.set_current_process(None)
 

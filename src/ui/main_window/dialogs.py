@@ -1,16 +1,19 @@
+import logging
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
-    QDialog, QFrame, QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QPlainTextEdit, QProgressBar, QTextBrowser
+    QDialog, QFrame, QVBoxLayout, QLabel, QLineEdit, QPushButton, QHBoxLayout, QPlainTextEdit, QProgressBar, QTextBrowser
 )
-from PyQt6.QtCore import Qt, QObject, QRunnable, QThreadPool, QUrl, pyqtSignal
-from PyQt6.QtGui import QDesktopServices
+from PyQt6.QtCore import Qt, QObject, QRegularExpression, QRunnable, QThreadPool, QUrl, pyqtSignal
+from PyQt6.QtGui import QColor, QDesktopServices, QPalette, QRegularExpressionValidator
 from PyQt6.QtGui import QFont
 import webbrowser
 
 class StorefrontRequiredDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.storefront = ""
+        self._detector = None
         self.setWindowTitle("Storefront Required")
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
@@ -51,6 +54,18 @@ class StorefrontRequiredDialog(QDialog):
                 padding: 0 16px;
             }
             QPushButton#Secondary:hover { background-color: #666; }
+            QPushButton#Primary:disabled, QPushButton#Secondary:disabled { background-color: #444; color: #888; }
+            QLineEdit {
+                background-color: #1f1f1f;
+                color: white;
+                border: 1px solid #555;
+                border-radius: 8px;
+                padding: 6px 10px;
+                font-size: 12pt;
+            }
+            QLineEdit:focus { border: 1px solid #d60117; }
+            QLabel#Hint  { color: #8a8a8a; }
+            QLabel#Error { color: #fd576b; }
         """)
 
         outer = QVBoxLayout(self)
@@ -69,7 +84,8 @@ class StorefrontRequiredDialog(QDialog):
         content.addWidget(title)
 
         body = QLabel(
-            "A storefront that matches your Apple Music account region must be set before searching. Please set one in Settings."
+            "Enter the two-letter country code of your Apple Music account, for example us, gb or jp. "
+            "It must match the country your Apple account is registered in."
         )
         body.setObjectName("Body")
         bf = QFont(); bf.setPointSize(10)
@@ -78,29 +94,102 @@ class StorefrontRequiredDialog(QDialog):
         body.setAlignment(Qt.AlignmentFlag.AlignCenter)
         content.addWidget(body)
 
-        content.addSpacing(15)
+        input_row = QHBoxLayout()
+        input_row.setSpacing(8)
+        self.code_input = QLineEdit()
+        self.code_input.setPlaceholderText("us")
+        palette = self.code_input.palette()
+        palette.setColor(QPalette.ColorRole.PlaceholderText, QColor("#777777"))
+        self.code_input.setPalette(palette)
+        self.code_input.setMaxLength(2)
+        self.code_input.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.code_input.setValidator(QRegularExpressionValidator(QRegularExpression("[A-Za-z]{0,2}"), self.code_input))
+        self.code_input.textEdited.connect(self._on_code_edited)
+        self.code_input.returnPressed.connect(self._save)
+        self.detect_button = QPushButton("Detect")
+        self.detect_button.setObjectName("Secondary")
+        self.detect_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.detect_button.clicked.connect(self._detect)
+        input_row.addWidget(self.code_input, 1)
+        input_row.addWidget(self.detect_button)
+        content.addLayout(input_row)
+
+        self.hint = QLabel("Detect uses your IP address. With a VPN it shows the VPN's country.")
+        self.hint.setObjectName("Hint")
+        self.hint.setWordWrap(True)
+        self.hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        content.addWidget(self.hint)
+
+        content.addSpacing(6)
 
         button_layout = QHBoxLayout()
         button_layout.setSpacing(10)
-        
+
         cancel_button = QPushButton("Cancel")
         cancel_button.setObjectName("Secondary")
         cancel_button.setCursor(Qt.CursorShape.PointingHandCursor)
         cancel_button.clicked.connect(self.reject)
 
-        settings_button = QPushButton("Open Settings")
-        settings_button.setObjectName("Primary")
-        settings_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        settings_button.clicked.connect(self.accept)
+        self.save_button = QPushButton("Save")
+        self.save_button.setObjectName("Primary")
+        self.save_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.save_button.setEnabled(False)
+        self.save_button.clicked.connect(self._save)
 
         button_layout.addStretch()
         button_layout.addWidget(cancel_button)
-        button_layout.addWidget(settings_button)
+        button_layout.addWidget(self.save_button)
         button_layout.addStretch()
-        
+
         content.addLayout(button_layout)
 
         self.setFixedSize(self.sizeHint())
+        self.code_input.setFocus()
+
+    def _on_code_edited(self, text):
+        lowered = text.lower()
+        if lowered != text:
+            position = self.code_input.cursorPosition()
+            self.code_input.setText(lowered)
+            self.code_input.setCursorPosition(position)
+        self.save_button.setEnabled(len(lowered) == 2)
+
+    def _show_hint(self, text, error=False):
+        self.hint.setObjectName("Error" if error else "Hint")
+        self.hint.setText(text)
+        self.hint.style().unpolish(self.hint)
+        self.hint.style().polish(self.hint)
+
+    def _detect(self):
+        from ui.settings_page import StorefrontDetector
+        self.detect_button.setEnabled(False)
+        self.detect_button.setText("...")
+        detector = StorefrontDetector()
+        detector.signals.finished.connect(self._on_detected)
+        detector.signals.error.connect(self._on_detect_failed)
+        self._detector = detector
+        QThreadPool.globalInstance().start(detector)
+
+    def _on_detected(self, code):
+        self.detect_button.setEnabled(True)
+        self.detect_button.setText("Detect")
+        self.code_input.setText(code.lower())
+        self._on_code_edited(self.code_input.text())
+        self._show_hint(f"Detected {code.upper()} from your IP address. Change it if your Apple account is registered elsewhere.")
+
+    def _on_detect_failed(self, message):
+        logging.error("Storefront detection failed: %s", message)
+        self.detect_button.setEnabled(True)
+        self.detect_button.setText("Detect")
+        self._show_hint("Could not detect your country. Type the code yourself.", error=True)
+
+    def _save(self):
+        code = self.code_input.text().strip().lower()
+        if len(code) != 2 or not code.isalpha():
+            self._show_hint("Enter a two-letter country code, for example us.", error=True)
+            return
+        self.storefront = code
+        self.accept()
 
 class RestartDialog(QDialog):
   

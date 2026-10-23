@@ -8,7 +8,7 @@ A GUI-based Apple Music downloader for Atmos, Lossless, and AAC formats (needs t
 
 Easily download playlists, songs, albums, and artist discographies up to Lossless 24-bit/192kHz, and music videos up to 4K.
 
-- **ALAC, Atmos, AAC, and music videos** download through **Wrapper Lite**, the default wrapper. One launcher installs it, no WSL or Docker needed. Setup guide for [Windows](https://github.com/rwnk-12/apmyx-gui?tab=readme-ov-file#wrapper-installation-windows) / [MacOS](https://github.com/rwnk-12/apmyx-gui?tab=readme-ov-file#wrapper-installation-macos) / [Linux](https://github.com/rwnk-12/apmyx-gui?tab=readme-ov-file#wrapper-installation-linux).
+- **ALAC, Atmos, AAC, and music videos** download through **Wrapper Lite**, the default wrapper. One launcher installs it. On Windows PCs where QEMU can't run, setup switches to Docker for you. Setup guide for [Windows](https://github.com/rwnk-12/apmyx-gui?tab=readme-ov-file#wrapper-installation-windows) / [MacOS](https://github.com/rwnk-12/apmyx-gui?tab=readme-ov-file#wrapper-installation-macos) / [Linux](https://github.com/rwnk-12/apmyx-gui?tab=readme-ov-file#wrapper-installation-linux).
 - **Wrapper v2 and Legacy Wrapper** are also supported if you run them yourself. See [Other Wrappers](https://github.com/rwnk-12/apmyx-gui?tab=readme-ov-file#other-wrappers).
 - A [media user token](https://github.com/rwnk-12/apmyx-gui?tab=readme-ov-file#getting-your-media-user-token) is optional. It is used as a lyrics fallback, and by the Legacy Wrapper for AAC LC and music videos.
 
@@ -70,11 +70,13 @@ Install [Get cookies.txt LOCALLY](https://chromewebstore.google.com/detail/get-c
 
 ## Wrapper Installation (Windows)
 
-Works on Windows 10 and 11 (x64). Nothing else needs to be installed.
+Works on Windows 10 and 11 (x64).
 
 1. Run `setup-wrapper-lite-qemu.cmd` from the apmyx folder.
 2. Enter your Apple ID email, password, and the verification code when prompted.
-3. Wait for `Wrapper Lite QEMU is ready at http://127.0.0.1:12340`. You can close the window, the wrapper keeps running in the background.
+3. Wait for `Wrapper Lite is ready ... at http://127.0.0.1:12340`. You can close the window, the wrapper keeps running in the background.
+
+Setup runs Wrapper Lite in QEMU when **Windows Hypervisor Platform** is turned on in Windows Features. If it is off, or QEMU cannot start on your PC, setup switches to Docker instead and installs Docker Desktop if needed. Approve the administrator prompts, restart Windows if asked, then run setup again.
 
 After a restart, start it again with **Start Wrapper Lite** in **Settings -> Wrapper**, or run:
 
@@ -82,7 +84,7 @@ After a restart, start it again with **Start Wrapper Lite** in **Settings -> Wra
 setup-wrapper-lite-qemu.cmd -Action Start
 ```
 
-The launcher also supports `-Action Stop`, `-Action Login`, and `-Action Status`. Turning on **Windows Hypervisor Platform** in Windows Features makes it faster, but it is not required. If it fails to start, add `-Acceleration tcg`.
+The launcher also supports `-Action Stop`, `-Action Login`, and `-Action Status`.
 
 ## Wrapper Installation (MacOS)
 
