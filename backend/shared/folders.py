@@ -91,10 +91,10 @@ def save_folders(settings):
 def blocked_folder_hint(message):
     if sys.platform != "win32" or not any(marker in message for marker in BLOCK_MARKERS):
         return ""
-    text = message.replace("\\\\", "\\").lower()
+    text = message.replace("\\\\", "\\").replace("\\", "/").lower()
     for name in PROTECTED:
         for folder in {known_folder(name), Path.home() / name}:
-            if str(folder).lower().rstrip("\\") + "\\" in text:
+            if str(folder).replace("\\", "/").lower().rstrip("/") + "/" in text:
                 return (
                     f"Windows Controlled Folder Access may have blocked apmyx from saving to your {name} folder. "
                     "Allow apmyx in Windows Security > Virus & threat protection > Ransomware protection, "

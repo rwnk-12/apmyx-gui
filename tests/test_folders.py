@@ -61,6 +61,10 @@ class DefaultFolderTests(unittest.TestCase):
             hint = folders.blocked_folder_hint(blocked)
             self.assertIn("Controlled Folder Access", hint)
             self.assertIn("Music folder", hint)
+            forward = f"[WinError 2] The system cannot find the file specified: '{Path(music).as_posix()}'"
+            backward = f"[WinError 2] The system cannot find the file specified: '{music.replace('/', chr(92))}'"
+            self.assertIn("Music folder", folders.blocked_folder_hint(forward))
+            self.assertIn("Music folder", folders.blocked_folder_hint(backward))
             self.assertNotIn(";", hint)
             elsewhere = str(self.downloads / "apmyx" / "ALAC")
             self.assertEqual(folders.blocked_folder_hint(f"[WinError 2] The system cannot find the file specified: {elsewhere!r}"), "")
