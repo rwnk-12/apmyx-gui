@@ -1,6 +1,7 @@
 import argparse
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 
@@ -12,6 +13,16 @@ PROVIDERS = BACKEND / "providers"
 
 def run(args, **kwargs):
     subprocess.run([str(arg) for arg in args], check=True, **kwargs)
+
+
+def build_environment():
+    env = dict(os.environ)
+    cargo_bin = Path.home() / ".cargo" / "bin"
+    if cargo_bin.is_dir() and shutil.which("cargo", path=env.get("PATH", "")) is None:
+        env["PATH"] = os.pathsep.join(
+            part for part in (str(cargo_bin), env.get("PATH", "")) if part
+        )
+    return env
 
 
 def package_data(package):
@@ -31,6 +42,7 @@ def main():
     runtime = BACKEND / "runtime"
     runtime.mkdir(exist_ok=True)
     lock = BACKEND / "runtime-requirements.txt"
+    env = build_environment()
     if lock.exists():
         run(
             [
@@ -43,7 +55,8 @@ def main():
                 runtime,
                 "-r",
                 lock,
-            ]
+            ],
+            env=env,
         )
         run(
             [
@@ -56,7 +69,8 @@ def main():
                 "--target",
                 runtime,
                 PROVIDERS / "gamdl",
-            ]
+            ],
+            env=env,
         )
     else:
         run(
@@ -71,7 +85,8 @@ def main():
                 PROVIDERS / "gamdl",
                 "psutil==7.2.2",
                 "pyinstaller==6.22.3",
-            ]
+            ],
+            env=env,
         )
     run([sys.executable, "-c", "from backend.router.applemusicdecrypt import check_native; check_native()"], cwd=ROOT)
     if args.bundle:

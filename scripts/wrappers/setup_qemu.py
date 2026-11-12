@@ -6,6 +6,7 @@ import json
 import os
 import platform
 import re
+import select
 import shutil
 import signal
 import socket
@@ -322,6 +323,29 @@ def wrapper_status(http_port):
         return False, False
 
 
+def serial_lines(connection, timeout):
+    """Yield login-console lines while enforcing a real wall-clock deadline."""
+    deadline = time.monotonic() + timeout
+    pending = bytearray()
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise SetupError("Apple sign-in timed out. Check the QEMU login logs and rerun with --action login.")
+        readable, _, _ = select.select([connection], [], [], remaining)
+        if not readable:
+            raise SetupError("Apple sign-in timed out. Check the QEMU login logs and rerun with --action login.")
+        chunk = connection.recv(4096)
+        if not chunk:
+            if pending:
+                yield pending.decode("utf-8", errors="replace")
+            return
+        pending.extend(chunk)
+        while b"\n" in pending:
+            line, _, rest = pending.partition(b"\n")
+            pending = bytearray(rest)
+            yield line.decode("utf-8", errors="replace")
+
+
 def wait_ready(http_port, timeout=300):
     deadline, next_update = time.time() + timeout, 0
     while time.time() < deadline:
@@ -360,12 +384,9 @@ def login(http_port, accel):
                     raise SetupError("QEMU login console did not become available.") from None
                 time.sleep(0.1)
         connection.settimeout(None)
-        reader = connection.makefile("r", encoding="utf-8", errors="replace", newline="\n")
-        codes, deadline = 0, time.time() + 300
+        codes = 0
         status("Waiting for the QEMU login guest...")
-        for line in reader:
-            if time.time() > deadline:
-                break
+        for line in serial_lines(connection, timeout=300):
             if not sent and "[apmyx] credentials-ready" in line:
                 connection.sendall(f"{username}\n{password}\n".encode("utf-8"))
                 password, sent = None, True
@@ -421,7 +442,7 @@ def main():
         http_port = state["http_port"] if state and not port_given else args.http_port
         if args.action == "stop":
             stop()
-            status("Wrapper Lite QEMU stopped. Your login is saved.")
+            status("Wrapper Lite QEMU stopped. Its session disk was saved; authentication was not checked.")
             return 0
         if args.action == "status":
             if not state:
