@@ -2,6 +2,7 @@ import gzip
 import hashlib
 import os
 from pathlib import Path
+import socket
 import subprocess
 import sys
 import tempfile
@@ -102,6 +103,25 @@ class WrapperLiteQemuPosixTests(unittest.TestCase):
         self.assertIn("apmyx_login=1", " ".join(login))
         self.assertEqual(login[login.index("-cpu") + 1], "host")
         self.assertNotIn("password", " ".join(login))
+
+    def test_login_console_deadline_applies_while_guest_is_silent(self):
+        guest, host = socket.socketpair()
+        self.addCleanup(guest.close)
+        self.addCleanup(host.close)
+        with self.assertRaisesRegex(setup_qemu.SetupError, "timed out"):
+            list(setup_qemu.serial_lines(host, timeout=0.03))
+
+    def test_login_console_reads_fragmented_lines_and_final_partial_line(self):
+        guest, host = socket.socketpair()
+        self.addCleanup(guest.close)
+        self.addCleanup(host.close)
+        guest.sendall(b"[apmyx] credentials-")
+        guest.sendall(b"ready\n[apmyx] login-complete")
+        guest.shutdown(socket.SHUT_WR)
+        self.assertEqual(
+            list(setup_qemu.serial_lines(host, timeout=1)),
+            ["[apmyx] credentials-ready", "[apmyx] login-complete"],
+        )
 
     def test_macos_uses_homebrew_qemu_and_explains_when_missing(self):
         with patch("platform.system", return_value="Darwin"):
